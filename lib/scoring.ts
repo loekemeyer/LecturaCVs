@@ -61,6 +61,7 @@ Reglas:
 - Puntuás cada criterio de 0 a 100 según qué tan bien el CV demuestra ese requisito (100 = lo cumple sobradamente y con evidencia clara; 50 = parcial o ambiguo; 0 = sin evidencia alguna).
 - Si el CV no menciona información sobre un criterio, asignás un puntaje bajo y lo aclarás. No inventás ni asumís datos que no estén escritos.
 - Ignorás factores irrelevantes y potencialmente discriminatorios (género, edad, foto, nacionalidad, estado civil, religión, apariencia): no deben influir en el puntaje.
+- Los emprendimientos propios, negocios propios o el trabajo freelance/independiente NO cuentan como experiencia laboral ni como antigüedad o estabilidad: ignoralos al puntuar (no suman). Considerá solo el empleo en relación de dependencia. Aclaralo en la justificación cuando corresponda.
 - Las justificaciones son concretas y citan evidencia del CV cuando existe.
 - Respondés siempre en español.`;
 
@@ -82,8 +83,10 @@ function recommendationFor(score: number): Recommendation {
 }
 
 export interface ScoreCvInput {
-  /** PDF codificado en base64 (sin el prefijo data:). */
-  pdfBase64: string;
+  /** Archivo (PDF o imagen) codificado en base64, sin el prefijo "data:". */
+  fileBase64: string;
+  /** Tipo MIME: "application/pdf" o "image/png" | "image/jpeg" | "image/webp" | "image/gif". */
+  mediaType: string;
   fileName: string;
   criteria: Criterion[];
   jobContext: string;
@@ -94,7 +97,8 @@ export interface ScoreCvInput {
 }
 
 export async function scoreCv(input: ScoreCvInput): Promise<Evaluation> {
-  const { pdfBase64, fileName, criteria, jobContext, offeredSalary, expectedSalary } = input;
+  const { fileBase64, mediaType, fileName, criteria, jobContext, offeredSalary, expectedSalary } =
+    input;
 
   // Solo criterios con nombre y peso positivo.
   const validCriteria = criteria.filter((c) => c.name.trim() && c.weight > 0);
@@ -126,6 +130,22 @@ ${criteriaList}${salaryBlock}
 
 Además, extraé el nombre del postulante, un resumen del perfil, sus fortalezas y las dudas o información faltante respecto del puesto.`;
 
+  // El CV puede venir como PDF (bloque "document") o como imagen/foto (bloque "image").
+  const cvBlock: Anthropic.ContentBlockParam =
+    mediaType === "application/pdf"
+      ? {
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: fileBase64 },
+        }
+      : {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: mediaType as "image/png" | "image/jpeg" | "image/webp" | "image/gif",
+            data: fileBase64,
+          },
+        };
+
   const stream = client.messages.stream({
     model: MODEL,
     max_tokens: 16000,
@@ -135,17 +155,7 @@ Además, extraé el nombre del postulante, un resumen del perfil, sus fortalezas
     messages: [
       {
         role: "user",
-        content: [
-          {
-            type: "document",
-            source: {
-              type: "base64",
-              media_type: "application/pdf",
-              data: pdfBase64,
-            },
-          },
-          { type: "text", text: instruction },
-        ],
+        content: [cvBlock, { type: "text", text: instruction }],
       },
     ],
     // Structured output: obliga a la respuesta a cumplir el esquema JSON.

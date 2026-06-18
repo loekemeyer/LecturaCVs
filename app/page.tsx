@@ -33,7 +33,7 @@ const DEFAULT_CRITERIA: Omit<CriterionDraft, "id">[] = [
     name: "Antigüedad en los últimos 3 trabajos",
     weight: 35,
     description:
-      "Cuánto tiempo permaneció en cada uno de sus últimos 3 empleos. Más permanencia = más estable = mejor puntaje. Varios trabajos cortos (menos de ~1 año) bajan el puntaje.",
+      "Cuánto tiempo permaneció en cada uno de sus últimos 3 empleos en relación de dependencia. Más permanencia = más estable = mejor puntaje. Varios trabajos cortos (menos de ~1 año) bajan el puntaje. No cuentes emprendimientos propios ni trabajo freelance/independiente como empleo.",
   },
   {
     name: "Sector privado (penaliza empleo estatal)",
@@ -52,6 +52,64 @@ const toTen = (n: number) => {
   const v = Math.round(n) / 10;
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 };
+
+// Separador de miles (formato argentino): "1200000" -> "1.200.000"
+function formatMiles(value: string): string {
+  const digits = (value || "").replace(/\D/g, "");
+  if (!digits) return "";
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+// Acepta PDF e imágenes (foto/captura del CV).
+function isSupportedFile(f: File): boolean {
+  const t = (f.type || "").toLowerCase();
+  if (t === "application/pdf" || t.startsWith("image/")) return true;
+  const n = f.name.toLowerCase();
+  return [".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"].some((ext) => n.endsWith(ext));
+}
+
+function loadImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("No se pudo leer la imagen."));
+    };
+    img.src = url;
+  });
+}
+
+// Los PDFs se mandan tal cual. Las imágenes se reescalan (máx 1600px) y se exportan a
+// JPEG para que pesen poco y entren en el límite del servidor.
+async function prepareUpload(file: File): Promise<{ blob: Blob; filename: string }> {
+  const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+  if (isPdf) return { blob: file, filename: file.name };
+  try {
+    const img = await loadImage(file);
+    const maxDim = 1600;
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return { blob: file, filename: file.name };
+    ctx.drawImage(img, 0, 0, w, h);
+    const blob = await new Promise<Blob | null>((res) =>
+      canvas.toBlob(res, "image/jpeg", 0.85),
+    );
+    if (!blob) return { blob: file, filename: file.name };
+    return { blob, filename: file.name.replace(/\.[^.]+$/, "") + ".jpg" };
+  } catch {
+    return { blob: file, filename: file.name };
+  }
+}
 
 export default function Home() {
   const [jobContext, setJobContext] = useState("");
@@ -141,12 +199,10 @@ export default function Home() {
 
   // ---------- archivos ----------
   function addFiles(list: FileList | File[]) {
-    const pdfs = Array.from(list).filter(
-      (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"),
-    );
+    const supported = Array.from(list).filter(isSupportedFile);
     setItems((prev) => {
       const seen = new Set(prev.map((p) => `${p.file.name}:${p.file.size}`));
-      const toAdd = pdfs
+      const toAdd = supported
         .filter((f) => !seen.has(`${f.name}:${f.size}`))
         .map((f) => ({ id: genId(), file: f, expectedSalary: "", status: "pending" as const }));
       return [...prev, ...toAdd];
@@ -178,8 +234,9 @@ export default function Home() {
     payloadCriteria: Criterion[],
     expectedSalary: string,
   ): Promise<Evaluation> {
+    const { blob, filename } = await prepareUpload(file);
     const fd = new FormData();
-    fd.append("file", file);
+    fd.append("file", blob, filename);
     fd.append("criteria", JSON.stringify(payloadCriteria));
     fd.append("jobContext", jobContext);
     fd.append("offeredSalary", offeredSalary);
@@ -274,9 +331,10 @@ export default function Home() {
           <input
             id="offered"
             type="text"
-            placeholder="Ej: $1.200.000"
+            inputMode="numeric"
+            placeholder="Ej: 1.200.000"
             value={offeredSalary}
-            onChange={(e) => setOfferedSalary(e.target.value)}
+            onChange={(e) => setOfferedSalary(formatMiles(e.target.value))}
           />
           <p className="card-hint" style={{ marginTop: 6, marginBottom: 0 }}>
             Se compara con el sueldo pretendido que cargás en cada CV (criterio de sueldo).
@@ -345,11 +403,11 @@ export default function Home() {
       {/* PASO 2 — subir CVs */}
       <section className="card">
         <h2>
-          <span className="step">2</span>Subir CVs en PDF
+          <span className="step">2</span>Subir CVs (PDF o imagen)
         </h2>
         <p className="card-hint">
-          Podés arrastrar varios archivos. Cargá el sueldo pretendido de cada candidato (lo
-          muestran ZonaJobs y Computrabajo).
+          Podés arrastrar varios archivos (PDF o foto/imagen del CV). Cargá el sueldo pretendido
+          de cada candidato (lo muestran ZonaJobs y Computrabajo).
         </p>
 
         <div
@@ -366,12 +424,12 @@ export default function Home() {
             addFiles(e.dataTransfer.files);
           }}
         >
-          <strong>Hacé clic para elegir</strong> o arrastrá los PDFs acá
+          <strong>Hacé clic para elegir</strong> o arrastrá PDFs o imágenes acá
         </div>
         <input
           ref={inputRef}
           type="file"
-          accept="application/pdf,.pdf"
+          accept="application/pdf,.pdf,image/*,.png,.jpg,.jpeg,.webp"
           multiple
           style={{ display: "none" }}
           onChange={(e) => {
@@ -384,35 +442,42 @@ export default function Home() {
           <ul className="filelist">
             {items.map((it) => (
               <li className="fileitem" key={it.id}>
-                <span className="name">{it.file.name}</span>
-                <input
-                  type="text"
-                  className="salary-input"
-                  placeholder="Sueldo pretendido"
-                  value={it.expectedSalary}
-                  disabled={running}
-                  onChange={(e) => updateItem(it.id, { expectedSalary: e.target.value })}
-                />
-                <span className={`status ${it.status}`}>
-                  {it.status === "pending" && "En espera"}
-                  {it.status === "scoring" && (
-                    <>
-                      <span className="spinner" /> Evaluando
-                    </>
-                  )}
-                  {it.status === "done" && "Listo"}
-                  {it.status === "error" && "Error"}
+                <span className="name" title={it.file.name}>
+                  {it.file.name}
                 </span>
-                {!running && (
-                  <button
-                    className="icon-btn"
-                    style={{ width: 30, height: 30, fontSize: 16 }}
-                    aria-label="Quitar archivo"
-                    onClick={() => removeItem(it.id)}
-                  >
-                    ×
-                  </button>
-                )}
+                <div className="fileitem-right">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className="salary-input"
+                    placeholder="Sueldo pretendido"
+                    value={it.expectedSalary}
+                    disabled={running}
+                    onChange={(e) =>
+                      updateItem(it.id, { expectedSalary: formatMiles(e.target.value) })
+                    }
+                  />
+                  <span className={`status ${it.status}`}>
+                    {it.status === "pending" && "En espera"}
+                    {it.status === "scoring" && (
+                      <>
+                        <span className="spinner" /> Evaluando
+                      </>
+                    )}
+                    {it.status === "done" && "Listo"}
+                    {it.status === "error" && "Error"}
+                  </span>
+                  {!running && (
+                    <button
+                      className="icon-btn"
+                      style={{ width: 30, height: 30, fontSize: 16 }}
+                      aria-label="Quitar archivo"
+                      onClick={() => removeItem(it.id)}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
