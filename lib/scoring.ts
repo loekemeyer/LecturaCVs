@@ -1,0 +1,208 @@
+// Núcleo de evaluación de CVs con Claude.
+// Función pura `scoreCv`: recibe el PDF + los criterios y devuelve la evaluación.
+// La usa /api/score, pero también podría reutilizarla cualquier otra fuente
+// de ingreso de CVs en el futuro (ej. lectura automática desde email).
+
+import Anthropic from "@anthropic-ai/sdk";
+import type { Criterion, CriterionResult, Evaluation, Recommendation } from "./types";
+
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-4-8";
+
+// Lo que le pedimos a la IA que devuelva (structured output).
+const RESULT_SCHEMA = {
+  type: "object",
+  properties: {
+    candidateName: {
+      type: "string",
+      description:
+        "Nombre del postulante tal como aparece en el CV. Si no se encuentra, devolvé 'Desconocido'.",
+    },
+    criteria: {
+      type: "array",
+      description:
+        "Un objeto por cada criterio recibido, en el mismo orden y con el mismo nombre exacto.",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          score: {
+            type: "number",
+            description:
+              "Puntaje de 0 a 100. 100 = el CV demuestra el requisito con evidencia clara; 0 = sin evidencia alguna.",
+          },
+          justification: {
+            type: "string",
+            description: "Justificación breve (1-2 frases) basada en el CV.",
+          },
+        },
+        required: ["name", "score", "justification"],
+        additionalProperties: false,
+      },
+    },
+    summary: { type: "string", description: "Resumen del perfil en 2-3 frases." },
+    strengths: {
+      type: "array",
+      items: { type: "string" },
+      description: "Fortalezas clave respecto del puesto.",
+    },
+    concerns: {
+      type: "array",
+      items: { type: "string" },
+      description: "Dudas, riesgos o información faltante respecto del puesto.",
+    },
+  },
+  required: ["candidateName", "criteria", "summary", "strengths", "concerns"],
+  additionalProperties: false,
+} as const;
+
+const SYSTEM_PROMPT = `Eres un reclutador profesional y objetivo. Evalúas currículums (CVs) de postulantes de forma justa, basándote ÚNICAMENTE en la evidencia presente en el documento.
+
+Reglas:
+- Puntuás cada criterio de 0 a 100 según qué tan bien el CV demuestra ese requisito (100 = lo cumple sobradamente y con evidencia clara; 50 = parcial o ambiguo; 0 = sin evidencia alguna).
+- Si el CV no menciona información sobre un criterio, asignás un puntaje bajo y lo aclarás. No inventás ni asumís datos que no estén escritos.
+- Ignorás factores irrelevantes y potencialmente discriminatorios (género, edad, foto, nacionalidad, estado civil, religión, apariencia): no deben influir en el puntaje.
+- Las justificaciones son concretas y citan evidencia del CV cuando existe.
+- Respondés siempre en español.`;
+
+interface RawResult {
+  candidateName: string;
+  criteria: { name: string; score: number; justification: string }[];
+  summary: string;
+  strengths: string[];
+  concerns: string[];
+}
+
+const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+const norm = (s: string) => s.trim().toLowerCase();
+
+function recommendationFor(score: number): Recommendation {
+  if (score >= 75) return "recomendado";
+  if (score >= 50) return "posible";
+  return "descartado";
+}
+
+export interface ScoreCvInput {
+  /** PDF codificado en base64 (sin el prefijo data:). */
+  pdfBase64: string;
+  fileName: string;
+  criteria: Criterion[];
+  jobContext: string;
+  /** Sueldo que ofrece la empresa (texto libre, ej. "$1.200.000"). Global. */
+  offeredSalary?: string;
+  /** Sueldo pretendido por este candidato (texto libre). Por candidato. */
+  expectedSalary?: string;
+}
+
+export async function scoreCv(input: ScoreCvInput): Promise<Evaluation> {
+  const { pdfBase64, fileName, criteria, jobContext, offeredSalary, expectedSalary } = input;
+
+  // Solo criterios con nombre y peso positivo.
+  const validCriteria = criteria.filter((c) => c.name.trim() && c.weight > 0);
+  if (validCriteria.length === 0) {
+    throw new Error("Definí al menos un criterio con nombre y peso mayor a cero.");
+  }
+
+  const client = new Anthropic(); // toma ANTHROPIC_API_KEY del entorno
+
+  const criteriaList = validCriteria
+    .map(
+      (c, i) =>
+        `${i + 1}. "${c.name}"${c.description?.trim() ? ` — ${c.description.trim()}` : ""}`,
+    )
+    .join("\n");
+
+  const salaryBlock =
+    offeredSalary?.trim() || expectedSalary?.trim()
+      ? `\n\nDatos salariales (usalos si hay un criterio relacionado con el sueldo):
+- Sueldo ofrecido por la empresa: ${offeredSalary?.trim() || "no especificado"}
+- Sueldo pretendido por este candidato: ${expectedSalary?.trim() || "no especificado"}`
+      : "";
+
+  const instruction = `Contexto del puesto:
+${jobContext.trim() || "(No especificado.)"}
+
+Evaluá el CV adjunto según estos criterios. Devolvé un objeto por criterio, en el mismo orden y con el mismo nombre exacto que aparece acá:
+${criteriaList}${salaryBlock}
+
+Además, extraé el nombre del postulante, un resumen del perfil, sus fortalezas y las dudas o información faltante respecto del puesto.`;
+
+  const stream = client.messages.stream({
+    model: MODEL,
+    max_tokens: 16000,
+    // Pensamiento adaptativo: mejora la calidad del análisis del CV.
+    thinking: { type: "adaptive" },
+    system: SYSTEM_PROMPT,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "document",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: pdfBase64,
+            },
+          },
+          { type: "text", text: instruction },
+        ],
+      },
+    ],
+    // Structured output: obliga a la respuesta a cumplir el esquema JSON.
+    output_config: { format: { type: "json_schema", schema: RESULT_SCHEMA } },
+  });
+
+  const message = await stream.finalMessage();
+
+  const textBlock = message.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    if (message.stop_reason === "refusal") {
+      throw new Error("La IA no pudo procesar este CV (respuesta rechazada por seguridad).");
+    }
+    throw new Error("La IA no devolvió una respuesta válida para este CV.");
+  }
+
+  let raw: RawResult;
+  try {
+    // Por las dudas, sacamos posibles ``` ```json que algún modelo agregue.
+    const clean = textBlock.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+    raw = JSON.parse(clean) as RawResult;
+  } catch {
+    throw new Error("No se pudo interpretar la evaluación devuelta por la IA.");
+  }
+
+  // Mapeo de los puntajes de la IA a los criterios del usuario (por nombre, con
+  // respaldo por posición) y cálculo del puntaje final ponderado por los pesos.
+  const byName = new Map(raw.criteria.map((c) => [norm(c.name), c]));
+  const totalWeight = validCriteria.reduce((s, c) => s + c.weight, 0) || 1;
+
+  const criteriaResults: CriterionResult[] = validCriteria.map((c, i) => {
+    const match = byName.get(norm(c.name)) ?? raw.criteria[i];
+    const score = clamp(Math.round(match?.score ?? 0), 0, 100);
+    return {
+      name: c.name,
+      score,
+      weight: Math.round((c.weight / totalWeight) * 100),
+      justification: match?.justification?.trim() || "Sin información en el CV.",
+    };
+  });
+
+  const overallScore = Math.round(
+    validCriteria.reduce((sum, c, i) => {
+      const match = byName.get(norm(c.name)) ?? raw.criteria[i];
+      const score = clamp(match?.score ?? 0, 0, 100);
+      return sum + score * (c.weight / totalWeight);
+    }, 0),
+  );
+
+  return {
+    fileName,
+    candidateName: raw.candidateName?.trim() || "Desconocido",
+    overallScore,
+    recommendation: recommendationFor(overallScore),
+    summary: raw.summary?.trim() || "",
+    strengths: Array.isArray(raw.strengths) ? raw.strengths.filter(Boolean) : [],
+    concerns: Array.isArray(raw.concerns) ? raw.concerns.filter(Boolean) : [],
+    criteria: criteriaResults,
+  };
+}

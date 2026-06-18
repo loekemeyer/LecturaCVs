@@ -1,0 +1,16 @@
+# dependencias
+/node_modules
+
+# build de Next.js
+/.next
+/out
+
+# variables de entorno (¡nunca subir la API key!)
+.env
+.env.local
+.env*.local
+
+# logs y varios
+*.log
+.DS_Store
+next-env.d.ts
