@@ -85,3 +85,41 @@ export async function fetchZonaJobsEmails(limit = 50): Promise<RawApplicationEma
 
   return out.reverse(); // más nuevos primero
 }
+
+// Trae el HTML original de un mail puntual (por uid), con las imágenes embebidas
+// (cid) convertidas a data URI para que la foto del candidato se vea.
+export async function fetchEmailHtml(uid: number): Promise<string> {
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (!user || !pass) throw new Error("Faltan GMAIL_USER o GMAIL_APP_PASSWORD en el servidor.");
+
+  const client = new ImapFlow({
+    host: "imap.gmail.com",
+    port: 993,
+    secure: true,
+    auth: { user, pass },
+    logger: false,
+  });
+
+  let html = "";
+  await client.connect();
+  const lock = await client.getMailboxLock("INBOX");
+  try {
+    for await (const msg of client.fetch([uid], { source: true }, { uid: true })) {
+      if (!msg.source) continue;
+      const parsed = await simpleParser(msg.source as Buffer);
+      html = parsed.html || parsed.textAsHtml || "";
+      for (const att of parsed.attachments || []) {
+        if (att.cid && att.content) {
+          const dataUri = `data:${att.contentType};base64,${(att.content as Buffer).toString("base64")}`;
+          html = html.split(`cid:${att.cid}`).join(dataUri);
+        }
+      }
+      break;
+    }
+  } finally {
+    lock.release();
+    await client.logout().catch(() => {});
+  }
+  return html;
+}

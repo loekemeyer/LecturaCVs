@@ -156,7 +156,12 @@ export default function Home() {
     total: number;
   } | null>(null);
   const [reevalFor, setReevalFor] = useState<string | null>(null);
-  const [viewCv, setViewCv] = useState<{ name: string; text: string } | null>(null);
+  const [viewCv, setViewCv] = useState<{
+    name: string;
+    html?: string;
+    text?: string;
+    loading?: boolean;
+  } | null>(null);
   const [openCand, setOpenCand] = useState<Set<string>>(new Set());
 
   const jobsRef = useRef(jobs);
@@ -446,6 +451,29 @@ export default function Home() {
     });
   }
 
+  // "Ver CV completo": para los de Gmail trae el correo original (con foto y formato);
+  // si no, muestra el texto.
+  async function openCv(c: { name: string; emailUid?: number; cvText?: string }) {
+    if (c.emailUid == null) {
+      setViewCv({ name: c.name, text: c.cvText || "Este candidato no tiene CV para mostrar." });
+      return;
+    }
+    setViewCv({ name: c.name, loading: true });
+    try {
+      const res = await fetch("/api/email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ uid: c.emailUid }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.html) setViewCv({ name: c.name, html: data.html });
+      else
+        setViewCv({ name: c.name, text: c.cvText || data.error || "No se pudo cargar el correo." });
+    } catch {
+      setViewCv({ name: c.name, text: c.cvText || "No se pudo cargar el correo." });
+    }
+  }
+
   // ---------- derivados ----------
   const activeJob = jobs.find((j) => j.id === activeTab) || null;
   const totalCandidates = useMemo(
@@ -720,7 +748,7 @@ export default function Home() {
                     open={openCand.has(c.id)}
                     onToggle={() => toggleCand(c.id)}
                     onStatus={(s) => patchCandidate(activeJob.id, c.id, { status: s })}
-                    onViewCv={(p) => setViewCv(p)}
+                    onViewCv={openCv}
                   />
                 ))}
               </div>
@@ -738,7 +766,15 @@ export default function Home() {
                 ×
               </button>
             </div>
-            <pre className="modal-body">{viewCv.text}</pre>
+            {viewCv.loading ? (
+              <div className="modal-body">
+                <span className="spinner" /> Cargando el correo…
+              </div>
+            ) : viewCv.html ? (
+              <iframe className="modal-frame" sandbox="" srcDoc={viewCv.html} title="CV" />
+            ) : (
+              <pre className="modal-body">{viewCv.text}</pre>
+            )}
           </div>
         </div>
       )}
@@ -763,7 +799,7 @@ function CandidateRow({
   open: boolean;
   onToggle: () => void;
   onStatus: (s: Status) => void;
-  onViewCv: (p: { name: string; text: string }) => void;
+  onViewCv: (c: { name: string; emailUid?: number; cvText?: string }) => void;
 }) {
   const ev = cand.evaluation;
   return (
@@ -811,11 +847,13 @@ function CandidateRow({
 
       {open && (
         <div className="result-body">
-          {cand.cvText && (
+          {(cand.cvText || cand.emailUid != null) && (
             <button
               className="btn btn-ghost"
               style={{ marginBottom: 8 }}
-              onClick={() => onViewCv({ name: cand.name, text: cand.cvText || "" })}
+              onClick={() =>
+                onViewCv({ name: cand.name, emailUid: cand.emailUid, cvText: cand.cvText })
+              }
             >
               📄 Ver CV completo
             </button>
