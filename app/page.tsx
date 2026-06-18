@@ -21,6 +21,13 @@ type Candidate = {
   evaluation?: Evaluation;
 };
 
+type JobFilters = {
+  ageMin: string;
+  ageMax: string;
+  sex: "todos" | "masculino" | "femenino";
+  maxDistance: string;
+};
+
 type Job = {
   id: string;
   title: string;
@@ -29,6 +36,8 @@ type Job = {
   offeredSalary: string;
   jobContext: string;
   candidates: Candidate[];
+  /** Preferencias de filtrado por búsqueda (edad/sexo/distancia varían según el caso). */
+  filters?: JobFilters;
 };
 
 const STORAGE_KEY = "lecturacvs:ats:v1";
@@ -67,6 +76,34 @@ const STATUSES: { value: Status; label: string }[] = [
   { value: "tomado", label: "Tomado" },
   { value: "descartado", label: "Descartado" },
 ];
+
+const DEFAULT_FILTERS: JobFilters = { ageMin: "", ageMax: "", sex: "todos", maxDistance: "" };
+
+// ¿Hay algún filtro activo? (sirve para avisar cuántos candidatos quedan ocultos).
+function filtersActive(f: JobFilters): boolean {
+  return !!(f.ageMin || f.ageMax || f.maxDistance || f.sex !== "todos");
+}
+
+// Filtro tolerante: si al candidato le falta el dato (no figuraba en el CV), NO lo
+// ocultamos; solo descartamos a quien claramente no cumple. Edad/sexo/distancia se usan
+// para organizar la búsqueda, NO afectan el puntaje de mérito.
+function passesFilters(c: Candidate, f: JobFilters): boolean {
+  const ev = c.evaluation;
+  if (f.sex !== "todos" && ev?.sex && ev.sex !== "no especificado" && ev.sex !== f.sex) return false;
+  const age = ev?.age ?? null;
+  if (age != null) {
+    const min = f.ageMin ? Number(f.ageMin) : NaN;
+    const max = f.ageMax ? Number(f.ageMax) : NaN;
+    if (!Number.isNaN(min) && age < min) return false;
+    if (!Number.isNaN(max) && age > max) return false;
+  }
+  const dist = ev?.distanceKm ?? null;
+  if (dist != null && f.maxDistance) {
+    const m = Number(f.maxDistance);
+    if (!Number.isNaN(m) && dist > m) return false;
+  }
+  return true;
+}
 
 const withIds = (list: Omit<CriterionDraft, "id">[]): CriterionDraft[] =>
   list.map((c) => ({ id: genId(), ...c }));
@@ -245,7 +282,16 @@ export default function Home() {
       offeredSalary: "",
       jobContext: title,
       candidates: [],
+      filters: { ...DEFAULT_FILTERS },
     };
+  }
+
+  function setFilter(jobId: string, patch: Partial<JobFilters>) {
+    setJobs((prev) =>
+      prev.map((j) =>
+        j.id === jobId ? { ...j, filters: { ...(j.filters ?? DEFAULT_FILTERS), ...patch } } : j,
+      ),
+    );
   }
 
   function addManualSearch() {
@@ -488,6 +534,11 @@ export default function Home() {
       return sb - sa;
     });
   }
+
+  const activeFilters = activeJob?.filters ?? DEFAULT_FILTERS;
+  const rankedActive = activeJob ? rankedCandidates(activeJob) : [];
+  const shownActive = rankedActive.filter((c) => passesFilters(c, activeFilters));
+  const hiddenActive = rankedActive.length - shownActive.length;
 
   return (
     <main className="page">
@@ -736,11 +787,75 @@ export default function Home() {
               <h2 style={{ margin: 0 }}>Candidatos</h2>
               <span className="count">{activeJob.candidates.length} en total</span>
             </div>
+
+            <div className="cand-filters">
+              <span className="cf-title">Filtrar:</span>
+              <label className="cf-field">
+                Edad
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="mín"
+                  value={activeFilters.ageMin}
+                  onChange={(e) => setFilter(activeJob.id, { ageMin: e.target.value })}
+                />
+                <span className="cf-dash">–</span>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="máx"
+                  value={activeFilters.ageMax}
+                  onChange={(e) => setFilter(activeJob.id, { ageMax: e.target.value })}
+                />
+              </label>
+              <label className="cf-field">
+                Sexo
+                <select
+                  value={activeFilters.sex}
+                  onChange={(e) =>
+                    setFilter(activeJob.id, { sex: e.target.value as JobFilters["sex"] })
+                  }
+                >
+                  <option value="todos">Todos</option>
+                  <option value="masculino">Masculino</option>
+                  <option value="femenino">Femenino</option>
+                </select>
+              </label>
+              <label className="cf-field">
+                Dist. máx
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="km"
+                  value={activeFilters.maxDistance}
+                  onChange={(e) => setFilter(activeJob.id, { maxDistance: e.target.value })}
+                />
+                <span className="cf-unit">km</span>
+              </label>
+              {filtersActive(activeFilters) && (
+                <button
+                  className="cf-clear"
+                  onClick={() => setFilter(activeJob.id, { ...DEFAULT_FILTERS })}
+                >
+                  Limpiar
+                </button>
+              )}
+            </div>
+            {filtersActive(activeFilters) && (
+              <p className="cf-note">
+                Mostrando {shownActive.length} de {rankedActive.length}
+                {hiddenActive > 0 ? ` · ${hiddenActive} ocultos por el filtro` : ""}. Los candidatos
+                sin ese dato en el CV no se ocultan.
+              </p>
+            )}
+
             {activeJob.candidates.length === 0 ? (
               <p className="empty">Sin candidatos todavía en esta búsqueda.</p>
+            ) : shownActive.length === 0 ? (
+              <p className="empty">Ningún candidato coincide con el filtro.</p>
             ) : (
               <div style={{ marginTop: 12 }}>
-                {rankedCandidates(activeJob).map((c, i) => (
+                {shownActive.map((c, i) => (
                   <CandidateRow
                     key={c.id}
                     cand={c}
@@ -820,6 +935,8 @@ function CandidateRow({
           <div className="file">
             {cand.source === "gmail" ? "ZonaJobs" : "Archivo"}
             {cand.date ? ` · se postuló ${hace(cand.date)}` : ""}
+            {ev?.age != null ? ` · ${ev.age} años` : ""}
+            {ev?.distanceKm != null ? ` · a ${ev.distanceKm} km` : ""}
             {cand.expectedSalary ? ` · pretende ${cand.expectedSalary}` : ""}
             {cand.scoreStatus === "error" ? " · error al evaluar" : ""}
           </div>
@@ -870,6 +987,19 @@ function CandidateRow({
           )}
           {ev && (
             <>
+              {(ev.age != null ||
+                ev.distanceKm != null ||
+                ev.location ||
+                (ev.sex && ev.sex !== "no especificado")) && (
+                <div className="cand-meta">
+                  {ev.age != null && <span>🎂 {ev.age} años</span>}
+                  {ev.sex && ev.sex !== "no especificado" && (
+                    <span>{ev.sex === "masculino" ? "♂ Masculino" : "♀ Femenino"}</span>
+                  )}
+                  {ev.location && <span>📍 {ev.location}</span>}
+                  {ev.distanceKm != null && <span>📏 {ev.distanceKm} km de la planta</span>}
+                </div>
+              )}
               {ev.summary && <p className="summary">{ev.summary}</p>}
               <h4>Puntaje por criterio</h4>
               {ev.criteria.map((cr) => (
@@ -974,7 +1104,18 @@ function Dashboard({
           </div>
           {shown.map(({ jobId, jobTitle, cand }) => (
             <div className="dash-row" key={cand.id}>
-              <span className="dash-name">{cand.name}</span>
+              <span className="dash-name">
+                {cand.name}
+                {(cand.evaluation?.age != null || cand.evaluation?.distanceKm != null) && (
+                  <small className="dash-sub">
+                    {cand.evaluation?.age != null ? `${cand.evaluation.age} años` : ""}
+                    {cand.evaluation?.age != null && cand.evaluation?.distanceKm != null
+                      ? " · "
+                      : ""}
+                    {cand.evaluation?.distanceKm != null ? `${cand.evaluation.distanceKm} km` : ""}
+                  </small>
+                )}
+              </span>
               <span className="dash-job">{jobTitle}</span>
               <span>{cand.expectedSalary || "—"}</span>
               <span>

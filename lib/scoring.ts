@@ -7,6 +7,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Criterion, CriterionResult, Evaluation, Recommendation } from "./types";
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-4-8";
+const PLANT_ADDRESS = process.env.PLANT_ADDRESS || "Cervantes 2868, CABA, Argentina";
 
 // Lo que le pedimos a la IA que devuelva (structured output).
 const RESULT_SCHEMA = {
@@ -50,8 +51,36 @@ const RESULT_SCHEMA = {
       items: { type: "string" },
       description: "Dudas, riesgos o información faltante respecto del puesto.",
     },
+    candidateAge: {
+      type: "integer",
+      description: "Edad en años calculada de la fecha de nacimiento del CV. 0 si no figura.",
+    },
+    candidateSex: {
+      type: "string",
+      enum: ["masculino", "femenino", "no especificado"],
+      description:
+        "Sexo inferido del nombre y datos del CV. 'no especificado' si no se puede determinar.",
+    },
+    candidateLocation: {
+      type: "string",
+      description: "Barrio o localidad del candidato tal como figura en el CV. Vacío si no figura.",
+    },
+    distanceKm: {
+      type: "number",
+      description: `Distancia aproximada en km (línea recta) desde la ubicación del candidato hasta la planta en ${PLANT_ADDRESS}. -1 si no se puede estimar.`,
+    },
   },
-  required: ["candidateName", "criteria", "summary", "strengths", "concerns"],
+  required: [
+    "candidateName",
+    "criteria",
+    "summary",
+    "strengths",
+    "concerns",
+    "candidateAge",
+    "candidateSex",
+    "candidateLocation",
+    "distanceKm",
+  ],
   additionalProperties: false,
 } as const;
 
@@ -72,6 +101,10 @@ interface RawResult {
   summary: string;
   strengths: string[];
   concerns: string[];
+  candidateAge: number;
+  candidateSex: string;
+  candidateLocation: string;
+  distanceKm: number;
 }
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
@@ -152,7 +185,13 @@ ${jobContext.trim() || "(No especificado.)"}
 Evaluá el CV adjunto según estos criterios. Devolvé un objeto por criterio, en el mismo orden y con el mismo nombre exacto que aparece acá:
 ${criteriaList}${salaryBlock}
 
-Además, extraé el nombre del postulante, un resumen del perfil, sus fortalezas y las dudas o información faltante respecto del puesto.`;
+Además, extraé el nombre del postulante, un resumen del perfil, sus fortalezas y las dudas o información faltante respecto del puesto.
+
+Datos adicionales solo para filtrar (NO influyen en el puntaje de los criterios; los uso aparte para organizar la búsqueda):
+- candidateAge: edad en años. Calculala de la fecha de nacimiento si figura; si no figura, devolvé 0.
+- candidateSex: "masculino" o "femenino" si se puede inferir del nombre o los datos; si no, "no especificado".
+- candidateLocation: barrio, localidad o ciudad de residencia del candidato tal como figura en el CV. Vacío si no figura.
+- distanceKm: distancia aproximada en km (en línea recta) desde la ubicación del candidato hasta la planta ubicada en ${PLANT_ADDRESS}. Estimala con tu conocimiento de geografía de la zona. Si no podés estimar la ubicación, devolvé -1.`;
 
   const cvBlock: Anthropic.ContentBlockParam = cvText
     ? { type: "text", text: `CV del candidato (texto del correo):\n\n${cvText}` }
@@ -217,6 +256,17 @@ Además, extraé el nombre del postulante, un resumen del perfil, sus fortalezas
     }, 0),
   );
 
+  // Datos para filtrar. Los sentinels del esquema (0 / -1 / "") se traducen a
+  // null/undefined para que "sin dato" no se confunda con un valor real.
+  const allowedSex: Evaluation["sex"][] = ["masculino", "femenino", "no especificado"];
+  const age = typeof raw.candidateAge === "number" && raw.candidateAge > 0 ? raw.candidateAge : null;
+  const sex = allowedSex.includes(raw.candidateSex as Evaluation["sex"])
+    ? (raw.candidateSex as Evaluation["sex"])
+    : "no especificado";
+  const location = raw.candidateLocation?.trim() || undefined;
+  const distanceKm =
+    typeof raw.distanceKm === "number" && raw.distanceKm >= 0 ? Math.round(raw.distanceKm) : null;
+
   return {
     fileName,
     candidateName: raw.candidateName?.trim() || "Desconocido",
@@ -226,6 +276,10 @@ Además, extraé el nombre del postulante, un resumen del perfil, sus fortalezas
     strengths: Array.isArray(raw.strengths) ? raw.strengths.filter(Boolean) : [],
     concerns: Array.isArray(raw.concerns) ? raw.concerns.filter(Boolean) : [],
     criteria: criteriaResults,
+    age,
+    sex,
+    location,
+    distanceKm,
   };
 }
 

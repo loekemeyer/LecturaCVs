@@ -34,4 +34,9 @@ export interface Evaluation {
   strengths: string[];
   concerns: string[];
   criteria: CriterionResult[];
+  /** Datos para filtrar (NO afectan el puntaje de mérito). */
+  age?: number | null;
+  sex?: "masculino" | "femenino" | "no especificado";
+  location?: string;
+  distanceKm?: number | null;
 }
