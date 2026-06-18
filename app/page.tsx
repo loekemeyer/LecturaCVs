@@ -150,6 +150,13 @@ export default function Home() {
   const [loaded, setLoaded] = useState(false);
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState("");
+  const [evalProgress, setEvalProgress] = useState<{
+    jobId: string;
+    done: number;
+    total: number;
+  } | null>(null);
+  const [reevalFor, setReevalFor] = useState<string | null>(null);
+  const [viewCv, setViewCv] = useState<{ name: string; text: string } | null>(null);
   const [openCand, setOpenCand] = useState<Set<string>>(new Set());
 
   const jobsRef = useRef(jobs);
@@ -211,6 +218,17 @@ export default function Home() {
           : { ...j, criteria: j.criteria.map((c) => (c.id === critId ? { ...c, ...patch } : c)) },
       ),
     );
+  }
+
+  // Los criterios ya se guardan solos; este botón confirma y, si hay candidatos
+  // puntuados, sugiere re-evaluarlos con los criterios nuevos.
+  function saveCriteria(jobId: string) {
+    const job = jobs.find((j) => j.id === jobId);
+    if (job && job.candidates.some((c) => c.evaluation)) {
+      setReevalFor(jobId);
+    } else {
+      showToast("Criterios guardados ✓");
+    }
   }
 
   function newJob(title: string, firstDate: string): Job {
@@ -337,6 +355,7 @@ export default function Home() {
   async function evaluateJob(jobId: string) {
     const job = jobsRef.current.find((j) => j.id === jobId);
     if (!job) return;
+    setReevalFor(null);
     if (!criteriaPayload(job).length) {
       showToast("Definí al menos un criterio con peso para esta búsqueda.");
       return;
@@ -347,6 +366,7 @@ export default function Home() {
       return;
     }
     targets.forEach((c) => patchCandidate(jobId, c.id, { scoreStatus: "scoring", error: undefined }));
+    setEvalProgress({ jobId, done: 0, total: targets.length });
     let i = 0;
     const worker = async () => {
       while (i < targets.length) {
@@ -365,9 +385,11 @@ export default function Home() {
             error: e instanceof Error ? e.message : "Error",
           });
         }
+        setEvalProgress((p) => (p && p.jobId === jobId ? { ...p, done: p.done + 1 } : p));
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => worker()));
+    setEvalProgress(null);
   }
 
   // ---------- subir archivo manual a una búsqueda ----------
@@ -600,12 +622,29 @@ export default function Home() {
                 >
                   + Agregar criterio
                 </button>
+                <button
+                  className="btn btn-primary"
+                  style={{ marginTop: 8, marginLeft: 8 }}
+                  onClick={() => saveCriteria(activeJob.id)}
+                >
+                  Guardar criterios
+                </button>
               </div>
             </details>
 
             <div className="btn-row">
-              <button className="btn btn-primary" onClick={() => evaluateJob(activeJob.id)}>
-                Evaluar candidatos
+              <button
+                className="btn btn-primary"
+                onClick={() => evaluateJob(activeJob.id)}
+                disabled={evalProgress?.jobId === activeJob.id}
+              >
+                {evalProgress?.jobId === activeJob.id ? (
+                  <>
+                    <span className="spinner" /> Analizando… {evalProgress.done}/{evalProgress.total}
+                  </>
+                ) : (
+                  "Evaluar candidatos"
+                )}
               </button>
               <button className="btn btn-ghost" onClick={() => fileRef.current?.click()}>
                 + Agregar CV (archivo)
@@ -622,7 +661,47 @@ export default function Home() {
                 }}
               />
             </div>
+
+            {evalProgress && evalProgress.jobId === activeJob.id && (
+              <div className="progress">
+                <div className="progress-bar">
+                  <span
+                    style={{
+                      width: `${Math.round(
+                        (evalProgress.done / Math.max(1, evalProgress.total)) * 100,
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <div className="progress-label">
+                  <span className="spinner" /> Analizando candidatos… {evalProgress.done} de{" "}
+                  {evalProgress.total}
+                </div>
+              </div>
+            )}
           </section>
+
+          {reevalFor === activeJob.id && (
+            <div className="reeval-banner">
+              <span>
+                Guardaste los criterios. ¿Re-evaluás los candidatos con los nuevos criterios?
+              </span>
+              <div className="reeval-actions">
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setReevalFor(null);
+                    evaluateJob(activeJob.id);
+                  }}
+                >
+                  Re-evaluar candidatos
+                </button>
+                <button className="btn btn-ghost" onClick={() => setReevalFor(null)}>
+                  Ahora no
+                </button>
+              </div>
+            </div>
+          )}
 
           <section className="card">
             <div className="results-toolbar">
@@ -641,12 +720,27 @@ export default function Home() {
                     open={openCand.has(c.id)}
                     onToggle={() => toggleCand(c.id)}
                     onStatus={(s) => patchCandidate(activeJob.id, c.id, { status: s })}
+                    onViewCv={(p) => setViewCv(p)}
                   />
                 ))}
               </div>
             )}
           </section>
         </>
+      )}
+
+      {viewCv && (
+        <div className="modal-overlay" onClick={() => setViewCv(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <strong>{viewCv.name}</strong>
+              <button className="icon-btn" aria-label="Cerrar" onClick={() => setViewCv(null)}>
+                ×
+              </button>
+            </div>
+            <pre className="modal-body">{viewCv.text}</pre>
+          </div>
+        </div>
       )}
     </main>
   );
@@ -662,12 +756,14 @@ function CandidateRow({
   open,
   onToggle,
   onStatus,
+  onViewCv,
 }: {
   cand: Candidate;
   rank: number;
   open: boolean;
   onToggle: () => void;
   onStatus: (s: Status) => void;
+  onViewCv: (p: { name: string; text: string }) => void;
 }) {
   const ev = cand.evaluation;
   return (
@@ -713,54 +809,72 @@ function CandidateRow({
         </span>
       </div>
 
-      {open && ev && (
+      {open && (
         <div className="result-body">
-          {ev.summary && <p className="summary">{ev.summary}</p>}
-          <h4>Puntaje por criterio</h4>
-          {ev.criteria.map((cr) => (
-            <div className="crit" key={cr.name}>
-              <div className="crit-top">
-                <span>
-                  <span className="cname">{cr.name}</span>{" "}
-                  <span className="cw">· peso {cr.weight}%</span>
-                </span>
-                <span className="cscore">{toTen(cr.score)}/10</span>
-              </div>
-              <div className="bar">
-                <span className={scoreClass(cr.score)} style={{ width: `${cr.score}%` }} />
-              </div>
-              <p className="why">{cr.justification}</p>
-            </div>
-          ))}
-          {ev.strengths.length > 0 && (
+          {cand.cvText && (
+            <button
+              className="btn btn-ghost"
+              style={{ marginBottom: 8 }}
+              onClick={() => onViewCv({ name: cand.name, text: cand.cvText || "" })}
+            >
+              📄 Ver CV completo
+            </button>
+          )}
+          {cand.scoreStatus === "error" && (
+            <div className="error-box">{cand.error || "No se pudo evaluar."}</div>
+          )}
+          {!ev && cand.scoreStatus !== "error" && (
+            <p className="why" style={{ marginTop: 8 }}>
+              {cand.cvText
+                ? "Todavía sin evaluar. Tocá «Evaluar candidatos» para puntuarlo."
+                : "Este candidato no tiene CV en texto para mostrar."}
+            </p>
+          )}
+          {ev && (
             <>
-              <h4>Fortalezas</h4>
-              <div className="tags">
-                {ev.strengths.map((s, k) => (
-                  <span className="tag pos" key={k}>
-                    {s}
-                  </span>
-                ))}
-              </div>
+              {ev.summary && <p className="summary">{ev.summary}</p>}
+              <h4>Puntaje por criterio</h4>
+              {ev.criteria.map((cr) => (
+                <div className="crit" key={cr.name}>
+                  <div className="crit-top">
+                    <span>
+                      <span className="cname">{cr.name}</span>{" "}
+                      <span className="cw">· peso {cr.weight}%</span>
+                    </span>
+                    <span className="cscore">{toTen(cr.score)}/10</span>
+                  </div>
+                  <div className="bar">
+                    <span className={scoreClass(cr.score)} style={{ width: `${cr.score}%` }} />
+                  </div>
+                  <p className="why">{cr.justification}</p>
+                </div>
+              ))}
+              {ev.strengths.length > 0 && (
+                <>
+                  <h4>Fortalezas</h4>
+                  <div className="tags">
+                    {ev.strengths.map((s, k) => (
+                      <span className="tag pos" key={k}>
+                        {s}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+              {ev.concerns.length > 0 && (
+                <>
+                  <h4>Dudas / puntos faltantes</h4>
+                  <div className="tags">
+                    {ev.concerns.map((s, k) => (
+                      <span className="tag neg" key={k}>
+                        {s}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           )}
-          {ev.concerns.length > 0 && (
-            <>
-              <h4>Dudas / puntos faltantes</h4>
-              <div className="tags">
-                {ev.concerns.map((s, k) => (
-                  <span className="tag neg" key={k}>
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      )}
-      {open && !ev && cand.scoreStatus === "error" && (
-        <div className="result-body">
-          <div className="error-box">{cand.error || "No se pudo evaluar."}</div>
         </div>
       )}
     </div>
