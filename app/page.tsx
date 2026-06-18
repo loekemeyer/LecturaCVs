@@ -84,6 +84,18 @@ function shortDate(iso: string): string {
   const d = new Date(iso);
   return isNaN(d.getTime()) ? "" : `${d.getDate()}/${d.getMonth() + 1}`;
 }
+function hace(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days <= 0) return "hoy";
+  if (days === 1) return "ayer";
+  if (days < 30) return `hace ${days} días`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return months === 1 ? "hace 1 mes" : `hace ${months} meses`;
+  const years = Math.floor(days / 365);
+  return years === 1 ? "hace 1 año" : `hace ${years} años`;
+}
 function isSupportedFile(f: File): boolean {
   const t = (f.type || "").toLowerCase();
   if (t === "application/pdf" || t.startsWith("image/")) return true;
@@ -243,6 +255,7 @@ export default function Home() {
       }[] = data.applications || [];
 
       let added = 0;
+      let healed = 0;
       let firstNewJobId = "";
       setJobs((prev) => {
         const next = prev.map((j) => ({ ...j, candidates: [...j.candidates] }));
@@ -256,7 +269,22 @@ export default function Home() {
             byTitle.set(key, job);
             if (!firstNewJobId) firstNewJobId = job.id;
           }
-          if (app.uid != null && job.candidates.some((c) => c.emailUid === app.uid)) continue;
+          if (app.uid != null) {
+            const idx = job.candidates.findIndex((c) => c.emailUid === app.uid);
+            if (idx >= 0) {
+              // Ya existe: refrescamos datos (ej. CV que antes vino vacío) sin perder
+              // el estado ni la evaluación.
+              const ex = job.candidates[idx];
+              job.candidates[idx] = {
+                ...ex,
+                cvText: app.cvText || ex.cvText,
+                name: ex.name && ex.name !== "Desconocido" ? ex.name : app.candidateName || ex.name,
+                expectedSalary: ex.expectedSalary || app.expectedSalary || "",
+              };
+              healed++;
+              continue;
+            }
+          }
           job.candidates.push({
             id: genId(),
             source: "gmail",
@@ -277,8 +305,12 @@ export default function Home() {
       if (firstNewJobId) setActiveTab((prev) => prev || firstNewJobId);
       showToast(
         added > 0
-          ? `Importados ${added} CV${added > 1 ? "s" : ""}. Revisá las pestañas y tocá «Evaluar».`
-          : "No se encontraron CVs nuevos en el correo.",
+          ? `Importados ${added} CV${added > 1 ? "s" : ""}${
+              healed ? ` (y ${healed} actualizados)` : ""
+            }. Revisá las pestañas y tocá «Evaluar candidatos».`
+          : healed > 0
+            ? `Actualizados ${healed} CV${healed > 1 ? "s" : ""}. Ya podés tocar «Evaluar candidatos».`
+            : "No se encontraron CVs nuevos en el correo.",
       );
     } catch (e) {
       showToast("Error al importar: " + (e instanceof Error ? e.message : "desconocido"));
@@ -655,6 +687,7 @@ function CandidateRow({
           <div className="who">{cand.name}</div>
           <div className="file">
             {cand.source === "gmail" ? "ZonaJobs" : "Archivo"}
+            {cand.date ? ` · se postuló ${hace(cand.date)}` : ""}
             {cand.expectedSalary ? ` · pretende ${cand.expectedSalary}` : ""}
             {cand.scoreStatus === "error" ? " · error al evaluar" : ""}
           </div>
