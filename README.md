@@ -64,6 +64,25 @@ npm start
 
 ---
 
+## Deploy (ponerla online)
+
+La forma más simple es **Vercel** (gratis, con soporte nativo de Next.js):
+
+1. Entrá a [vercel.com](https://vercel.com) e iniciá sesión con tu cuenta de **GitHub**.
+2. **Add New… → Project** e importá el repo `loekemeyer/lecturacvs`.
+3. Antes de deployar, abrí **Environment Variables** y agregá:
+   - `ANTHROPIC_API_KEY` = tu clave de Anthropic (¡usá una nueva, no una que hayas pegado en un chat!).
+   - (opcional) `ANTHROPIC_MODEL` = `claude-opus-4-8`.
+4. **Deploy**. En ~2 minutos tenés una URL pública (ej. `lecturacvs.vercel.app`).
+
+Notas:
+
+- La **rama de producción** debe ser `main` (Vercel → Project Settings → Git, o GitHub → Settings → Branches → default `main`).
+- En el plan gratuito de Vercel cada request tiene un límite de ~4,5 MB; alcanza de sobra para CVs normales.
+- La API key queda como variable de entorno **en el servidor**: nunca se expone al navegador.
+
+---
+
 ## Arquitectura (y por qué sirve para la futura app móvil)
 
 ```
