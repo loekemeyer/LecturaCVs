@@ -5,10 +5,13 @@ import type { Criterion, Evaluation } from "@/lib/types";
 
 type CriterionDraft = { id: string; name: string; weight: number; description: string };
 type ItemStatus = "pending" | "scoring" | "done" | "error";
+type NameStatus = "reading" | "done" | "error";
 type FileItem = {
   id: string;
   file: File;
   expectedSalary: string;
+  candidateName: string;
+  nameStatus: NameStatus;
   status: ItemStatus;
   result?: Evaluation;
   error?: string;
@@ -33,7 +36,7 @@ const DEFAULT_CRITERIA: Omit<CriterionDraft, "id">[] = [
     name: "Antigüedad en los últimos 3 trabajos",
     weight: 35,
     description:
-      "Cuánto tiempo permaneció en cada uno de sus últimos 3 empleos en relación de dependencia. Más permanencia = más estable = mejor puntaje. Varios trabajos cortos (menos de ~1 año) bajan el puntaje. No cuentes emprendimientos propios ni trabajo freelance/independiente como empleo.",
+      "Estabilidad laboral en los últimos empleos (relación de dependencia). Permanecer ~2 años o más en un puesto es una buena señal, sobre todo en gente joven. Lo que baja el puntaje es tener varios empleos (2, 3 o más) de menos de 1 año cada uno (job hopping). No cuentes emprendimientos propios ni trabajo freelance/independiente como empleo.",
   },
   {
     name: "Sector privado (penaliza empleo estatal)",
@@ -200,13 +203,45 @@ export default function Home() {
   // ---------- archivos ----------
   function addFiles(list: FileList | File[]) {
     const supported = Array.from(list).filter(isSupportedFile);
-    setItems((prev) => {
-      const seen = new Set(prev.map((p) => `${p.file.name}:${p.file.size}`));
-      const toAdd = supported
-        .filter((f) => !seen.has(`${f.name}:${f.size}`))
-        .map((f) => ({ id: genId(), file: f, expectedSalary: "", status: "pending" as const }));
-      return [...prev, ...toAdd];
-    });
+    const seen = new Set(items.map((p) => `${p.file.name}:${p.file.size}`));
+    const toAdd = supported
+      .filter((f) => !seen.has(`${f.name}:${f.size}`))
+      .map((f) => ({
+        id: genId(),
+        file: f,
+        expectedSalary: "",
+        candidateName: "",
+        nameStatus: "reading" as const,
+        status: "pending" as const,
+      }));
+    if (!toAdd.length) return;
+    setItems((prev) => [...prev, ...toAdd]);
+    void extractNames(toAdd.map((t) => ({ id: t.id, file: t.file })));
+  }
+
+  // Lee cada CV recién subido para mostrar el nombre del postulante en la lista.
+  async function extractNames(targets: { id: string; file: File }[]) {
+    let i = 0;
+    const worker = async (): Promise<void> => {
+      while (i < targets.length) {
+        const { id, file } = targets[i++];
+        try {
+          const { blob, filename } = await prepareUpload(file);
+          const fd = new FormData();
+          fd.append("file", blob, filename);
+          const res = await fetch("/api/extract-name", { method: "POST", body: fd });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data?.name) {
+            updateItem(id, { candidateName: String(data.name), nameStatus: "done" });
+          } else {
+            updateItem(id, { nameStatus: "error" });
+          }
+        } catch {
+          updateItem(id, { nameStatus: "error" });
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, targets.length) }, () => worker()));
   }
   function updateItem(id: string, patch: Partial<FileItem>) {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
@@ -443,7 +478,18 @@ export default function Home() {
             {items.map((it) => (
               <li className="fileitem" key={it.id}>
                 <span className="name" title={it.file.name}>
-                  {it.file.name}
+                  {it.nameStatus === "reading" ? (
+                    <span className="who muted">
+                      <span className="spinner" /> Leyendo nombre…
+                    </span>
+                  ) : it.candidateName && it.candidateName.toLowerCase() !== "desconocido" ? (
+                    <>
+                      <span className="who">{it.candidateName}</span>
+                      <span className="sub">{it.file.name}</span>
+                    </>
+                  ) : (
+                    <span className="who">{it.file.name}</span>
+                  )}
                 </span>
                 <div className="fileitem-right">
                   <input

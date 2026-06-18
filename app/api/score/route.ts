@@ -1,31 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { scoreCv } from "@/lib/scoring";
+import { detectMediaType, MAX_UPLOAD_BYTES } from "@/lib/upload";
 import type { Criterion } from "@/lib/types";
 
 export const runtime = "nodejs";
 // Puntuar un CV con la IA puede tardar; damos margen.
 export const maxDuration = 60;
 
-const MAX_BYTES = 15 * 1024 * 1024; // 15 MB
-
 function bad(error: string, status = 400) {
   return Response.json({ error }, { status });
-}
-
-const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
-
-// Devuelve el tipo MIME soportado (PDF o imagen) o null si no se acepta.
-function detectMediaType(file: File): string | null {
-  const t = (file.type || "").toLowerCase();
-  if (t === "application/pdf") return "application/pdf";
-  if (IMAGE_TYPES.includes(t)) return t;
-  const n = file.name.toLowerCase();
-  if (n.endsWith(".pdf")) return "application/pdf";
-  if (n.endsWith(".png")) return "image/png";
-  if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
-  if (n.endsWith(".webp")) return "image/webp";
-  if (n.endsWith(".gif")) return "image/gif";
-  return null;
 }
 
 export async function POST(req: Request) {
@@ -54,7 +37,7 @@ export async function POST(req: Request) {
   const mediaType = detectMediaType(file);
   if (!mediaType) return bad("El archivo debe ser un PDF o una imagen (PNG, JPG, WEBP).");
   if (file.size === 0) return bad("El archivo está vacío.");
-  if (file.size > MAX_BYTES) return bad("El archivo supera el límite de 15 MB.", 413);
+  if (file.size > MAX_UPLOAD_BYTES) return bad("El archivo supera el límite de 15 MB.", 413);
 
   let criteria: Criterion[];
   try {

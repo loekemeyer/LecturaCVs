@@ -258,12 +258,36 @@ textarea {
   font-size: 14px;
 }
 .fileitem .name {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
   flex: 1;
   min-width: 40px;
   overflow: hidden;
+}
+.fileitem .name .who {
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text);
+  max-width: 100%;
+}
+.fileitem .name .who.muted {
+  font-weight: 500;
+  color: var(--text-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.fileitem .name .sub {
+  font-size: 12px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 .fileitem-right {
   display: flex;
