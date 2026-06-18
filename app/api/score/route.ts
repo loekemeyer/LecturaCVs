@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { scoreCv } from "@/lib/scoring";
+import { scoreCv, type ScoreCvInput } from "@/lib/scoring";
 import { detectMediaType, MAX_UPLOAD_BYTES } from "@/lib/upload";
 import type { Criterion } from "@/lib/types";
 
@@ -27,17 +27,11 @@ export async function POST(req: Request) {
   }
 
   const file = form.get("file");
+  const cvText = ((form.get("cvText") as string | null) ?? "").trim();
   const criteriaRaw = form.get("criteria");
   const jobContext = (form.get("jobContext") as string | null) ?? "";
   const offeredSalary = (form.get("offeredSalary") as string | null) ?? "";
   const expectedSalary = (form.get("expectedSalary") as string | null) ?? "";
-
-  if (!(file instanceof File)) return bad("Falta el archivo PDF.");
-
-  const mediaType = detectMediaType(file);
-  if (!mediaType) return bad("El archivo debe ser un PDF o una imagen (PNG, JPG, WEBP).");
-  if (file.size === 0) return bad("El archivo está vacío.");
-  if (file.size > MAX_UPLOAD_BYTES) return bad("El archivo supera el límite de 15 MB.", 413);
 
   let criteria: Criterion[];
   try {
@@ -49,13 +43,24 @@ export async function POST(req: Request) {
     return bad("Definí al menos un criterio de evaluación.");
   }
 
-  const fileBase64 = Buffer.from(await file.arrayBuffer()).toString("base64");
+  // Dos modos: archivo (PDF/imagen) o el CV como texto (cuerpo de un mail).
+  let source: Pick<ScoreCvInput, "fileBase64" | "mediaType" | "cvText" | "fileName">;
+  if (file instanceof File) {
+    const mediaType = detectMediaType(file);
+    if (!mediaType) return bad("El archivo debe ser un PDF o una imagen (PNG, JPG, WEBP).");
+    if (file.size === 0) return bad("El archivo está vacío.");
+    if (file.size > MAX_UPLOAD_BYTES) return bad("El archivo supera el límite de 15 MB.", 413);
+    const fileBase64 = Buffer.from(await file.arrayBuffer()).toString("base64");
+    source = { fileBase64, mediaType, fileName: file.name };
+  } else if (cvText) {
+    source = { cvText, fileName: (form.get("fileName") as string | null) || "CV" };
+  } else {
+    return bad("Falta el archivo (PDF/imagen) o el texto del CV.");
+  }
 
   try {
     const evaluation = await scoreCv({
-      fileBase64,
-      mediaType,
-      fileName: file.name,
+      ...source,
       criteria,
       jobContext,
       offeredSalary,

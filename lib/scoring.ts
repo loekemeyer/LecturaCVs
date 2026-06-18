@@ -102,9 +102,11 @@ function buildCvBlock(fileBase64: string, mediaType: string): Anthropic.ContentB
 
 export interface ScoreCvInput {
   /** Archivo (PDF o imagen) codificado en base64, sin el prefijo "data:". */
-  fileBase64: string;
+  fileBase64?: string;
   /** Tipo MIME: "application/pdf" o "image/png" | "image/jpeg" | "image/webp" | "image/gif". */
-  mediaType: string;
+  mediaType?: string;
+  /** Alternativa al archivo: el CV como texto (ej. cuerpo de un mail de ZonaJobs). */
+  cvText?: string;
   fileName: string;
   criteria: Criterion[];
   jobContext: string;
@@ -115,8 +117,12 @@ export interface ScoreCvInput {
 }
 
 export async function scoreCv(input: ScoreCvInput): Promise<Evaluation> {
-  const { fileBase64, mediaType, fileName, criteria, jobContext, offeredSalary, expectedSalary } =
+  const { fileBase64, mediaType, cvText, fileName, criteria, jobContext, offeredSalary, expectedSalary } =
     input;
+
+  if (!cvText && (!fileBase64 || !mediaType)) {
+    throw new Error("No se recibió ni un archivo ni el texto del CV.");
+  }
 
   // Solo criterios con nombre y peso positivo.
   const validCriteria = criteria.filter((c) => c.name.trim() && c.weight > 0);
@@ -148,7 +154,9 @@ ${criteriaList}${salaryBlock}
 
 Además, extraé el nombre del postulante, un resumen del perfil, sus fortalezas y las dudas o información faltante respecto del puesto.`;
 
-  const cvBlock = buildCvBlock(fileBase64, mediaType);
+  const cvBlock: Anthropic.ContentBlockParam = cvText
+    ? { type: "text", text: `CV del candidato (texto del correo):\n\n${cvText}` }
+    : buildCvBlock(fileBase64 as string, mediaType as string);
 
   const stream = client.messages.stream({
     model: MODEL,

@@ -11,11 +11,14 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",
+    "imapflow": "^1.4.1",
+    "mailparser": "^3.9.10",
     "next": "^16.2.9",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@types/mailparser": "^3.4.6",
     "@types/node": "^25.9.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
