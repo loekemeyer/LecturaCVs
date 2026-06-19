@@ -9,6 +9,15 @@ import type { Criterion, CriterionResult, Evaluation, Recommendation } from "./t
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-4-8";
 const PLANT_ADDRESS = process.env.PLANT_ADDRESS || "Cervantes 2868, CABA, Argentina";
 
+// El "pensamiento adaptativo" (thinking: adaptive) mejora la calidad del análisis,
+// pero solo existe en modelos Claude 4.6 en adelante (Opus 4.6/4.7/4.8, Sonnet 4.6,
+// Fable/Mythos 5). En modelos anteriores —por ejemplo claude-haiku-4-5, que el
+// .env sugiere para abaratar costos— la API responde con un 400:
+// "adaptive thinking is not supported on this model". Por eso solo lo activamos
+// cuando el modelo lo soporta; con el resto la evaluación corre igual, sin thinking.
+const SUPPORTS_ADAPTIVE_THINKING =
+  /^claude-(opus-4-(6|7|8)|sonnet-4-6|fable-5|mythos-5)/.test(MODEL);
+
 // Lo que le pedimos a la IA que devuelva (structured output).
 const RESULT_SCHEMA = {
   type: "object",
@@ -201,7 +210,8 @@ Datos adicionales solo para filtrar (NO influyen en el puntaje de los criterios;
     model: MODEL,
     max_tokens: 16000,
     // Pensamiento adaptativo: mejora la calidad del análisis del CV.
-    thinking: { type: "adaptive" },
+    // Solo en modelos que lo soportan (ver SUPPORTS_ADAPTIVE_THINKING arriba).
+    ...(SUPPORTS_ADAPTIVE_THINKING ? { thinking: { type: "adaptive" as const } } : {}),
     system: SYSTEM_PROMPT,
     messages: [
       {
