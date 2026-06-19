@@ -5,6 +5,9 @@
 /.next
 /out
 
+# build incremental de TypeScript
+*.tsbuildinfo
+
 # variables de entorno (¡nunca subir la API key!)
 .env
 .env.local
