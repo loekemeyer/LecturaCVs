@@ -235,6 +235,8 @@ export default function Home() {
   const cancelEvalRef = useRef(false);
   // Para avisar una sola vez si falla el guardado local (memoria del navegador).
   const saveWarnedRef = useRef(false);
+  // Última pestaña que no es el perfil, para volver al cerrar "Mi perfil".
+  const lastTabRef = useRef("");
 
   // Cargar
   useEffect(() => {
@@ -275,6 +277,18 @@ export default function Home() {
   function showToast(msg: string) {
     setToast(msg);
     window.setTimeout(() => setToast(""), 6000);
+  }
+
+  // Recordamos la última pestaña que no es el perfil (para el botón "Mi perfil").
+  useEffect(() => {
+    if (activeTab && activeTab !== "perfil") lastTabRef.current = activeTab;
+  }, [activeTab]);
+
+  // Botón "Mi perfil": abre el perfil o vuelve a donde estabas.
+  function toggleProfile() {
+    setActiveTab((cur) =>
+      cur === "perfil" ? lastTabRef.current || jobs[0]?.id || "" : "perfil",
+    );
   }
 
   // ---------- helpers de estado ----------
@@ -738,6 +752,13 @@ export default function Home() {
 
   return (
     <main className="page">
+      <button
+        className={`profile-fab${activeTab === "perfil" ? " active" : ""}`}
+        onClick={toggleProfile}
+        title="Mi perfil"
+      >
+        👤 <span className="profile-fab-text">Mi perfil</span>
+      </button>
       <header className="masthead">
         <div className="logo">CV</div>
         <div>
@@ -782,12 +803,6 @@ export default function Home() {
             📊 Panel general
           </button>
         )}
-        <button
-          className={`tab${activeTab === "perfil" ? " active" : ""}`}
-          onClick={() => setActiveTab("perfil")}
-        >
-          👤 Mi perfil
-        </button>
       </div>
 
       {/* vacío */}

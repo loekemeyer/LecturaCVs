@@ -133,6 +133,43 @@ label.field {
   cursor: pointer;
   text-decoration: underline;
 }
+/* botón fijo "Mi perfil" arriba a la derecha */
+.profile-fab {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary-dark);
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(20, 24, 60, 0.12);
+}
+.profile-fab:hover {
+  background: var(--primary-soft);
+}
+.profile-fab.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+@media (max-width: 420px) {
+  .profile-fab-text {
+    display: none;
+  }
+  .profile-fab {
+    padding: 8px 11px;
+    font-size: 15px;
+  }
+}
 .sede-select {
   font: inherit;
   font-size: 13px;
