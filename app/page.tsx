@@ -419,6 +419,52 @@ export default function Home() {
     setJobs((prev) => prev.map((j) => (j.sedeId === id ? { ...j, sedeId: undefined } : j)));
   }
 
+  // ---------- copia de seguridad (export / import) ----------
+  // Los datos viven solo en este navegador; la copia permite no perderlos y
+  // moverlos a otra compu.
+  function exportBackup() {
+    const data = {
+      app: "LecturaCVs",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      jobs: jobsRef.current,
+      sedes: sedesRef.current,
+      companyValues: companyValuesRef.current,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `lecturacvs-copia-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importBackup(file: File) {
+    try {
+      const data = JSON.parse(await file.text());
+      if (!data || !Array.isArray(data.jobs)) {
+        showToast("El archivo no parece una copia válida de LecturaCVs.");
+        return;
+      }
+      const cands = (data.jobs as Job[]).reduce((n, j) => n + (j.candidates?.length ?? 0), 0);
+      const ok = window.confirm(
+        `Esto va a REEMPLAZAR todos tus datos actuales por los de la copia ` +
+          `(${data.jobs.length} búsquedas, ${cands} candidatos). ¿Continuar?`,
+      );
+      if (!ok) return;
+      setJobs(data.jobs);
+      if (Array.isArray(data.sedes)) setSedes(data.sedes);
+      if (typeof data.companyValues === "string") setCompanyValues(data.companyValues);
+      setActiveTab("");
+      showToast("Copia restaurada con éxito.");
+    } catch {
+      showToast("No se pudo leer el archivo de copia.");
+    }
+  }
+
   // Dirección efectiva de una búsqueda: la sede elegida; si no eligió y hay una
   // sola sede, esa por defecto; si no, la dirección libre vieja (compat).
   function resolveAddress(job: Job, list: Sede[] = sedesRef.current): string {
@@ -1021,6 +1067,8 @@ export default function Home() {
           onRemoveSede={removeSede}
           onSetJobSede={(jobId, sedeId) => patchJob(jobId, { sedeId })}
           onOpenJob={(jobId) => setActiveTab(jobId)}
+          onExportBackup={exportBackup}
+          onImportBackup={importBackup}
         />
       )}
 
@@ -2023,6 +2071,8 @@ function Profile({
   onRemoveSede,
   onSetJobSede,
   onOpenJob,
+  onExportBackup,
+  onImportBackup,
 }: {
   jobs: Job[];
   sedes: Sede[];
@@ -2034,7 +2084,10 @@ function Profile({
   onRemoveSede: (id: string) => void;
   onSetJobSede: (jobId: string, sedeId: string | undefined) => void;
   onOpenJob: (jobId: string) => void;
+  onExportBackup: () => void;
+  onImportBackup: (file: File) => void;
 }) {
+  const backupFileRef = useRef<HTMLInputElement>(null);
   return (
     <>
       <button className="back-btn" onClick={onBack}>
@@ -2184,6 +2237,39 @@ function Profile({
             ))}
           </div>
         )}
+      </section>
+
+      <section className="card">
+        <h3 className="profile-h3" style={{ marginTop: 0 }}>
+          💾 Copia de seguridad
+        </h3>
+        <p className="field-hint" style={{ marginTop: 0 }}>
+          Tus datos (búsquedas, candidatos, notas y calificaciones) se guardan{" "}
+          <strong>solo en este navegador</strong>. Descargá una copia cada tanto para no perderlos
+          y poder pasarlos a otra computadora.
+        </p>
+        <div className="backup-actions">
+          <button className="btn btn-primary" onClick={onExportBackup}>
+            ⬇ Descargar copia
+          </button>
+          <button className="btn btn-ghost" onClick={() => backupFileRef.current?.click()}>
+            ⬆ Restaurar copia
+          </button>
+          <input
+            ref={backupFileRef}
+            type="file"
+            accept="application/json,.json"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onImportBackup(f);
+              e.target.value = "";
+            }}
+          />
+        </div>
+        <p className="field-hint" style={{ marginTop: 8 }}>
+          Restaurar una copia <strong>reemplaza</strong> todo lo que tengas cargado ahora.
+        </p>
       </section>
     </>
   );

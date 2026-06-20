@@ -1114,6 +1114,12 @@ select.status-select.cal-descartado {
   outline: none;
   border-color: var(--primary);
 }
+/* copia de seguridad (perfil) */
+.backup-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 
 @media (max-width: 560px) {
   .criterion {
