@@ -6,6 +6,8 @@ import type { Criterion, Evaluation } from "@/lib/types";
 type CriterionDraft = { id: string; name: string; weight: number; description: string };
 type Status = "nuevo" | "contactado" | "entrevistado" | "tomado" | "descartado";
 type ScoreStatus = "pending" | "scoring" | "done" | "error";
+// Calificación por color (triage rápido): primer nivel de clasificación.
+type Calificacion = "sincalificar" | "preseleccionado" | "favorito" | "descartado";
 
 type Candidate = {
   id: string;
@@ -16,6 +18,8 @@ type Candidate = {
   date: string;
   emailUid?: number;
   status: Status;
+  /** Calificación por color (triage). Si falta, se trata como "sincalificar". */
+  calificacion?: Calificacion;
   scoreStatus: ScoreStatus;
   error?: string;
   evaluation?: Evaluation;
@@ -98,6 +102,17 @@ const STATUSES: { value: Status; label: string }[] = [
   { value: "tomado", label: "Tomado" },
   { value: "descartado", label: "Descartado" },
 ];
+
+// Calificaciones por color (triage). El orden es el del menú.
+const CALIFICACIONES: { value: Calificacion; label: string; dot: string }[] = [
+  { value: "sincalificar", label: "Sin calificar", dot: "🟠" },
+  { value: "preseleccionado", label: "Preseleccionado", dot: "🟢" },
+  { value: "favorito", label: "Favorito", dot: "🟢" },
+  { value: "descartado", label: "Descartado", dot: "🔴" },
+];
+const califOf = (c: Candidate): Calificacion => c.calificacion ?? "sincalificar";
+const califLabel = (v: Calificacion) =>
+  CALIFICACIONES.find((x) => x.value === v)?.label ?? "Sin calificar";
 
 const DEFAULT_FILTERS: JobFilters = { ageMin: "", ageMax: "", sex: "todos", maxDistance: "" };
 
@@ -247,7 +262,7 @@ export default function Home() {
     loading?: boolean;
   } | null>(null);
   const [openCand, setOpenCand] = useState<Set<string>>(new Set());
-  const [showDiscarded, setShowDiscarded] = useState(false);
+  const [califFilter, setCalifFilter] = useState<Calificacion | "todos">("todos");
 
   const jobsRef = useRef(jobs);
   useEffect(() => {
@@ -867,11 +882,13 @@ export default function Home() {
 
   const activeFilters = activeJob?.filters ?? DEFAULT_FILTERS;
   const rankedActive = activeJob ? rankedCandidates(activeJob) : [];
-  // Los descartados (con el tachito) se sacan de la consideración y del listado.
-  const discardedActive = rankedActive.filter((c) => c.status === "descartado");
-  const consideredActive = rankedActive.filter((c) => c.status !== "descartado");
-  const shownActive = consideredActive.filter((c) => passesFilters(c, activeFilters));
-  const hiddenActive = consideredActive.length - shownActive.length;
+  // Filtro por color (calificación). "todos" muestra todo menos los descartados.
+  const byCalif = rankedActive.filter((c) =>
+    califFilter === "todos" ? califOf(c) !== "descartado" : califOf(c) === califFilter,
+  );
+  const shownActive = byCalif.filter((c) => passesFilters(c, activeFilters));
+  const hiddenActive = byCalif.length - shownActive.length;
+  const califCount = (v: Calificacion) => rankedActive.filter((c) => califOf(c) === v).length;
 
   return (
     <main className="page">
@@ -901,11 +918,7 @@ export default function Home() {
           <button className="btn btn-primary btn-xl" onClick={openScanModal}>
             ⟳ {jobs.length === 0 ? "Importar de Gmail" : "Nueva búsqueda"}
           </button>
-          {jobs.length > 0 ? (
-            <button className="linklike" onClick={() => setActiveTab("dashboard")}>
-              📊 Ver panel general
-            </button>
-          ) : (
+          {jobs.length === 0 && (
             <p className="empty" style={{ marginTop: 4 }}>
               Elegí uno de tus avisos de ZonaJobs y traé los CVs.
             </p>
@@ -924,11 +937,6 @@ export default function Home() {
                 : ""}
           </span>
           <div className="aviso-nav-actions">
-            {activeTab !== "dashboard" && (
-              <button className="linklike" onClick={() => setActiveTab("dashboard")}>
-                📊 Panel general
-              </button>
-            )}
             <button className="btn btn-ghost tab-new-btn" onClick={openScanModal}>
               + Nueva búsqueda
             </button>
@@ -1303,6 +1311,24 @@ export default function Home() {
               <span className="count">{activeJob.candidates.length} en total</span>
             </div>
 
+            <div className="calif-filters">
+              <button
+                className={`calif-chip${califFilter === "todos" ? " on" : ""}`}
+                onClick={() => setCalifFilter("todos")}
+              >
+                Todos
+              </button>
+              {CALIFICACIONES.map((k) => (
+                <button
+                  key={k.value}
+                  className={`calif-chip cal-${k.value}${califFilter === k.value ? " on" : ""}`}
+                  onClick={() => setCalifFilter(k.value)}
+                >
+                  <span className={`cal-dot cal-${k.value}`} /> {k.label} ({califCount(k.value)})
+                </button>
+              ))}
+            </div>
+
             <div className="cand-filters">
               <span className="cf-title">Filtrar:</span>
               <label className="cf-field">
@@ -1377,36 +1403,18 @@ export default function Home() {
                     rank={i + 1}
                     open={openCand.has(c.id)}
                     onToggle={() => toggleCand(c.id)}
-                    onStatus={(s) => patchCandidate(activeJob.id, c.id, { status: s })}
+                    onStatus={(s) =>
+                      patchCandidate(
+                        activeJob.id,
+                        c.id,
+                        s === "descartado" ? { status: s, calificacion: "descartado" } : { status: s },
+                      )
+                    }
+                    onCalif={(k) => patchCandidate(activeJob.id, c.id, { calificacion: k })}
                     onViewCv={openCv}
                     onReevaluate={() => reevaluateOne(activeJob.id, c.id)}
-                    onDiscard={() => patchCandidate(activeJob.id, c.id, { status: "descartado" })}
                   />
                 ))}
-              </div>
-            )}
-
-            {discardedActive.length > 0 && (
-              <div className="discarded-box">
-                <button className="linklike" onClick={() => setShowDiscarded((v) => !v)}>
-                  🗑 {showDiscarded ? "Ocultar" : "Ver"} {discardedActive.length} descartado
-                  {discardedActive.length !== 1 ? "s" : ""}
-                </button>
-                {showDiscarded && (
-                  <div className="discarded-list">
-                    {discardedActive.map((c) => (
-                      <div className="discarded-item" key={c.id}>
-                        <span className="discarded-name">{c.name}</span>
-                        <button
-                          className="linklike"
-                          onClick={() => patchCandidate(activeJob.id, c.id, { status: "nuevo" })}
-                        >
-                          ↩ Restaurar
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             )}
           </section>
@@ -1556,18 +1564,18 @@ function CandidateRow({
   open,
   onToggle,
   onStatus,
+  onCalif,
   onViewCv,
   onReevaluate,
-  onDiscard,
 }: {
   cand: Candidate;
   rank: number;
   open: boolean;
   onToggle: () => void;
   onStatus: (s: Status) => void;
+  onCalif: (k: Calificacion) => void;
   onViewCv: (c: { name: string; emailUid?: number; cvText?: string }) => void;
   onReevaluate: () => void;
-  onDiscard: () => void;
 }) {
   const ev = cand.evaluation;
   return (
@@ -1595,13 +1603,14 @@ function CandidateRow({
           </div>
         </div>
         <select
-          className={`status-select ${statusClass(cand.status)}`}
-          value={cand.status}
-          onChange={(e) => onStatus(e.target.value as Status)}
+          className={`status-select cal-${califOf(cand)}`}
+          value={califOf(cand)}
+          onChange={(e) => onCalif(e.target.value as Calificacion)}
+          title="Calificación"
         >
-          {STATUSES.filter((s) => s.value !== "descartado").map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.label}
+          {CALIFICACIONES.map((k) => (
+            <option key={k.value} value={k.value}>
+              {k.dot} {k.label}
             </option>
           ))}
         </select>
@@ -1610,13 +1619,6 @@ function CandidateRow({
             {ev.recommendation}
           </span>
         )}
-        <button
-          className="icon-btn discard-btn"
-          title="Descartar candidato"
-          onClick={onDiscard}
-        >
-          🗑
-        </button>
         <span className="chevron" onClick={onToggle}>
           ▾
         </span>
@@ -1650,6 +1652,20 @@ function CandidateRow({
                 )}
               </button>
             )}
+            <label className="proc-status">
+              Estado:
+              <select
+                className={`status-select ${statusClass(cand.status)}`}
+                value={cand.status}
+                onChange={(e) => onStatus(e.target.value as Status)}
+              >
+                <option value="nuevo">Sin contactar</option>
+                <option value="contactado">Contactado</option>
+                <option value="entrevistado">Entrevistado</option>
+                <option value="tomado">Tomado</option>
+                <option value="descartado">Descartado</option>
+              </select>
+            </label>
           </div>
           {cand.scoreStatus === "error" && (
             <div className="error-box">{cand.error || "No se pudo evaluar."}</div>
@@ -1729,6 +1745,92 @@ function CandidateRow({
   );
 }
 
+// Input de dirección con autocompletado/confirmación (OpenStreetMap/Nominatim,
+// gratis y sin API key). Sugerencias mientras se escribe; al elegir una, queda
+// la dirección estandarizada.
+function AddressInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [suggestions, setSuggestions] = useState<{ display_name: string }[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  function handleChange(v: string) {
+    onChange(v);
+    window.clearTimeout(timer.current);
+    if (v.trim().length < 4) {
+      setSuggestions([]);
+      setOpen(false);
+      return;
+    }
+    timer.current = window.setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=0&countrycodes=ar&limit=5&q=${encodeURIComponent(
+            v,
+          )}`,
+          { headers: { "Accept-Language": "es" } },
+        );
+        const data = await res.json();
+        setSuggestions(Array.isArray(data) ? data : []);
+        setOpen(true);
+      } catch {
+        setSuggestions([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 450);
+  }
+
+  function pick(s: { display_name: string }) {
+    onChange(s.display_name);
+    setOpen(false);
+    setSuggestions([]);
+  }
+
+  return (
+    <div className="addr-input" ref={boxRef}>
+      <input
+        type="text"
+        placeholder="Ej: Cervantes 2868, CABA"
+        value={value}
+        onChange={(e) => handleChange(e.target.value)}
+        onFocus={() => {
+          if (suggestions.length) setOpen(true);
+        }}
+      />
+      {open && (suggestions.length > 0 || loading) && (
+        <div className="addr-suggestions">
+          {loading && (
+            <div className="addr-loading">
+              <span className="spinner" /> Buscando…
+            </div>
+          )}
+          {suggestions.map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              className="addr-suggestion"
+              onClick={() => pick(s)}
+            >
+              {s.display_name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Profile({
   jobs,
   sedes,
@@ -1792,22 +1894,25 @@ function Profile({
           <div className="sede-list">
             {sedes.map((s) => (
               <div className="sede-row" key={s.id}>
-                <input
-                  type="text"
-                  className="sede-label"
-                  placeholder="Nombre (ej: Planta CABA)"
-                  value={s.label}
-                  onChange={(e) => onUpdateSede(s.id, { label: e.target.value })}
-                />
-                <input
-                  type="text"
-                  className="sede-addr"
-                  placeholder="Dirección (ej: Cervantes 2868, CABA)"
-                  value={s.address}
-                  onChange={(e) => onUpdateSede(s.id, { address: e.target.value })}
-                />
+                <label className="sede-field">
+                  <span className="sede-flabel">Sede</span>
+                  <input
+                    type="text"
+                    className="sede-label"
+                    placeholder="Ej: Planta CABA"
+                    value={s.label}
+                    onChange={(e) => onUpdateSede(s.id, { label: e.target.value })}
+                  />
+                </label>
+                <label className="sede-field sede-field-addr">
+                  <span className="sede-flabel">Dirección</span>
+                  <AddressInput
+                    value={s.address}
+                    onChange={(v) => onUpdateSede(s.id, { address: v })}
+                  />
+                </label>
                 <button
-                  className="icon-btn"
+                  className="icon-btn sede-del"
                   title="Eliminar sede"
                   onClick={() => onRemoveSede(s.id)}
                 >

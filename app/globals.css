@@ -241,14 +241,70 @@ label.field {
 }
 .sede-row {
   display: flex;
-  gap: 8px;
-  align-items: center;
+  gap: 10px;
+  align-items: flex-end;
 }
-.sede-row .sede-label {
-  flex: 0 0 200px;
+.sede-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.sede-row .sede-addr {
+.sede-field:not(.sede-field-addr) {
+  flex: 0 0 190px;
+}
+.sede-field-addr {
   flex: 1;
+  min-width: 0;
+}
+.sede-flabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+.sede-del {
+  margin-bottom: 2px;
+}
+/* autocompletado de dirección */
+.addr-input {
+  position: relative;
+}
+.addr-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(20, 24, 60, 0.14);
+  overflow: hidden;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.addr-suggestion {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  color: var(--text);
+}
+.addr-suggestion:last-child {
+  border-bottom: none;
+}
+.addr-suggestion:hover {
+  background: var(--primary-soft);
+}
+.addr-loading {
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--text-soft);
 }
 .profile-jobs {
   display: flex;
@@ -269,9 +325,8 @@ label.field {
   .sede-row {
     flex-wrap: wrap;
   }
-  .sede-row .sede-label,
-  .sede-row .sede-addr {
-    flex: 1 1 100%;
+  .sede-field {
+    flex: 1 1 100% !important;
   }
 }
 textarea,
@@ -433,40 +488,81 @@ textarea {
   flex-wrap: wrap;
   margin-bottom: 8px;
 }
-.discard-btn {
+/* calificación por color */
+.cal-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
   flex-shrink: 0;
-  opacity: 0.55;
 }
-.discard-btn:hover {
-  opacity: 1;
+.cal-dot.cal-sincalificar {
+  background: #f59e0b;
 }
-.discarded-box {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--border);
+.cal-dot.cal-preseleccionado {
+  background: #4ade80;
 }
-.discarded-list {
-  margin-top: 8px;
+.cal-dot.cal-favorito {
+  background: #15803d;
+}
+.cal-dot.cal-descartado {
+  background: #dc2626;
+}
+/* selector de calificación coloreado (en la fila del candidato) */
+select.status-select.cal-sincalificar {
+  background: #fff7ed;
+  color: #b45309;
+  border-color: #fdba74;
+}
+select.status-select.cal-preseleccionado {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #86efac;
+}
+select.status-select.cal-favorito {
+  background: #bbf7d0;
+  color: #14532d;
+  border-color: #4ade80;
+}
+select.status-select.cal-descartado {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+/* chips de filtro por color */
+.calif-filters {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
 }
-.discarded-item {
-  display: flex;
+.calif-chip {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 7px 10px;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-2);
-}
-.discarded-name {
-  font-size: 13px;
+  background: var(--surface);
   color: var(--text-soft);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  cursor: pointer;
+}
+.calif-chip.on {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+/* estado del proceso (en el cuerpo expandido) */
+.proc-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-soft);
 }
 
 /* control: cuántos CVs analizar */
