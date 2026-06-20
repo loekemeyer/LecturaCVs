@@ -110,6 +110,8 @@ const CALIFICACIONES: { value: Calificacion; label: string; dot: string }[] = [
   { value: "favorito", label: "Favorito", dot: "🟢" },
   { value: "descartado", label: "Descartado", dot: "🔴" },
 ];
+// Orden de los círculos para marcar rápido: naranja, rojo, verde claro, verde fuerte.
+const CALIF_PICKER: Calificacion[] = ["sincalificar", "descartado", "preseleccionado", "favorito"];
 const califOf = (c: Candidate): Calificacion => c.calificacion ?? "sincalificar";
 const califLabel = (v: Calificacion) =>
   CALIFICACIONES.find((x) => x.value === v)?.label ?? "Sin calificar";
@@ -237,7 +239,7 @@ export default function Home() {
   const [loaded, setLoaded] = useState(false);
   // Importar de Gmail: escaneo de avisos -> elegir -> levantar CVs.
   const [scanOpen, setScanOpen] = useState(false);
-  const [scanMonths, setScanMonths] = useState(4);
+  const [scanMonths, setScanMonths] = useState(6);
   const [scanning, setScanning] = useState(false);
   const [scanResults, setScanResults] = useState<Aviso[] | null>(null);
   const [scanError, setScanError] = useState("");
@@ -1438,10 +1440,9 @@ export default function Home() {
                   value={scanMonths}
                   onChange={(e) => setScanMonths(Number(e.target.value))}
                 >
-                  <option value={1}>1 mes</option>
-                  <option value={2}>2 meses</option>
                   <option value={3}>3 meses</option>
-                  <option value={4}>4 meses</option>
+                  <option value={6}>6 meses</option>
+                  <option value={12}>12 meses</option>
                 </select>
                 <button
                   className="btn btn-primary"
@@ -1490,7 +1491,7 @@ export default function Home() {
                         </div>
                         {existing ? (
                           existing.id === activeTab ? (
-                            <button className="btn btn-ghost" disabled>
+                            <button className="btn btn-open" disabled>
                               Abierto
                             </button>
                           ) : (
@@ -1602,23 +1603,22 @@ function CandidateRow({
             {cand.scoreStatus === "error" ? " · error al evaluar" : ""}
           </div>
         </div>
-        <select
-          className={`status-select cal-${califOf(cand)}`}
-          value={califOf(cand)}
-          onChange={(e) => onCalif(e.target.value as Calificacion)}
-          title="Calificación"
-        >
-          {CALIFICACIONES.map((k) => (
-            <option key={k.value} value={k.value}>
-              {k.dot} {k.label}
-            </option>
-          ))}
-        </select>
-        {ev && (
-          <span className={`badge ${ev.recommendation}`} onClick={onToggle}>
-            {ev.recommendation}
-          </span>
-        )}
+        <div className="cal-dots" role="group" aria-label="Calificación">
+          {CALIF_PICKER.map((v) => {
+            const active = califOf(cand) === v;
+            return (
+              <button
+                key={v}
+                type="button"
+                className={`cal-pick cal-${v}${active ? " active" : ""}`}
+                onClick={() => onCalif(v)}
+                title={califLabel(v)}
+                aria-label={califLabel(v)}
+                aria-pressed={active}
+              />
+            );
+          })}
+        </div>
         <span className="chevron" onClick={onToggle}>
           ▾
         </span>
@@ -1745,9 +1745,20 @@ function CandidateRow({
   );
 }
 
-// Input de dirección con autocompletado/confirmación (OpenStreetMap/Nominatim,
-// gratis y sin API key). Sugerencias mientras se escribe; al elegir una, queda
-// la dirección estandarizada.
+// Sugerencias de dirección con OpenStreetMap (Nominatim): gratis y sin API key.
+async function fetchAddressSuggestions(q: string): Promise<{ display_name: string }[]> {
+  const res = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=0&countrycodes=ar&limit=5&q=${encodeURIComponent(
+      q,
+    )}`,
+    { headers: { "Accept-Language": "es" } },
+  );
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+// Input de dirección con autocompletado/confirmación. Sugerencias mientras se
+// escribe; al elegir una, queda la dirección estandarizada.
 function AddressInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [suggestions, setSuggestions] = useState<{ display_name: string }[]>([]);
   const [open, setOpen] = useState(false);
@@ -1774,14 +1785,8 @@ function AddressInput({ value, onChange }: { value: string; onChange: (v: string
     timer.current = window.setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=0&countrycodes=ar&limit=5&q=${encodeURIComponent(
-            v,
-          )}`,
-          { headers: { "Accept-Language": "es" } },
-        );
-        const data = await res.json();
-        setSuggestions(Array.isArray(data) ? data : []);
+        const list = await fetchAddressSuggestions(v);
+        setSuggestions(list);
         setOpen(true);
       } catch {
         setSuggestions([]);

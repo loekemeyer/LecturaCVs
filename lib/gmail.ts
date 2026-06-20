@@ -98,11 +98,12 @@ export interface AvisoSummary {
 
 /**
  * Escaneo LIVIANO: lista los avisos de ZonaJobs en los últimos `months` meses
- * (máx. 4) leyendo solo los ASUNTOS (sin bajar cuerpos ni fotos). Devuelve cada
- * aviso con su cantidad de CVs. Es rápido aunque haya miles de mails.
+ * (máx. 12) leyendo solo los ASUNTOS (sin bajar cuerpos ni fotos). Devuelve cada
+ * aviso con su cantidad de CVs, ordenados por fecha (más reciente primero). Es
+ * rápido aunque haya miles de mails.
  */
-export async function scanZonaJobsAvisos(months = 4): Promise<AvisoSummary[]> {
-  const m = Math.min(4, Math.max(1, Math.round(months) || 4));
+export async function scanZonaJobsAvisos(months = 6): Promise<AvisoSummary[]> {
+  const m = Math.min(12, Math.max(1, Math.round(months) || 6));
   const since = new Date(Date.now() - m * 31 * 24 * 60 * 60 * 1000);
   const client = imapClient();
   const groups = new Map<string, { uids: number[]; firstDate: number }>();
@@ -131,7 +132,7 @@ export async function scanZonaJobsAvisos(months = 4): Promise<AvisoSummary[]> {
       uids: g.uids,
       firstDate: new Date(g.firstDate).toISOString(),
     }))
-    .sort((a, b) => b.count - a.count);
+    .sort((a, b) => new Date(b.firstDate).getTime() - new Date(a.firstDate).getTime());
 }
 
 /**

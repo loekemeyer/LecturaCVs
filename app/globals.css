@@ -426,6 +426,13 @@ textarea {
   background: var(--primary-soft);
   border-color: var(--primary-soft);
 }
+/* aviso ya abierto/importado en el modal de importación */
+.btn-open {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #86efac;
+  cursor: default;
+}
 .btn-pause {
   background: #fff7ed;
   color: #b45309;
@@ -500,12 +507,49 @@ textarea {
   background: #f59e0b;
 }
 .cal-dot.cal-preseleccionado {
-  background: #4ade80;
+  background: #86efac;
 }
 .cal-dot.cal-favorito {
-  background: #15803d;
+  background: #166534;
 }
 .cal-dot.cal-descartado {
+  background: #dc2626;
+}
+/* círculos para marcar la calificación directo (en la fila del candidato):
+   naranja, rojo, verde claro, verde fuerte */
+.cal-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.cal-pick {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.4;
+  transition: opacity 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+}
+.cal-pick:hover {
+  opacity: 0.85;
+  transform: scale(1.1);
+}
+.cal-pick.active {
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px #4b5563;
+}
+.cal-pick.cal-sincalificar {
+  background: #f59e0b;
+}
+.cal-pick.cal-preseleccionado {
+  background: #86efac;
+}
+.cal-pick.cal-favorito {
+  background: #166534;
+}
+.cal-pick.cal-descartado {
   background: #dc2626;
 }
 /* selector de calificación coloreado (en la fila del candidato) */
@@ -969,11 +1013,8 @@ select.status-select.cal-descartado {
     order: 1;
     margin-left: auto;
   }
-  .result-head .status-select {
+  .result-head .cal-dots {
     order: 2;
-  }
-  .result-head .badge {
-    order: 3;
   }
   .result-head .discard-btn {
     order: 4;
