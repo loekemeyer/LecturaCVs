@@ -438,12 +438,6 @@ export default function Home() {
     );
   }
 
-  function addManualSearch() {
-    const job = newJob("Nueva búsqueda", new Date().toISOString());
-    setJobs((prev) => [...prev, job]);
-    setActiveTab(job.id);
-  }
-
   function deleteJob(jobId: string) {
     if (!confirm("¿Eliminar esta búsqueda y todos sus candidatos?")) return;
     setJobs((prev) => prev.filter((j) => j.id !== jobId));
@@ -502,7 +496,7 @@ export default function Home() {
 
       let added = 0;
       let healed = 0;
-      let firstNewJobId = "";
+      let targetJobId = "";
       setJobs((prev) => {
         const next = prev.map((j) => ({ ...j, candidates: [...j.candidates] }));
         const byTitle = new Map(next.map((j) => [norm(j.title), j]));
@@ -513,8 +507,10 @@ export default function Home() {
             job = newJob(app.job || "Sin búsqueda", app.date);
             next.push(job);
             byTitle.set(key, job);
-            if (!firstNewJobId) firstNewJobId = job.id;
           }
+          // El aviso elegido es donde caen los CVs: nos quedamos con su id para
+          // mostrarlo al terminar (sea nuevo o ya existente).
+          targetJobId = job.id;
           if (app.uid != null) {
             const idx = job.candidates.findIndex((c) => c.emailUid === app.uid);
             if (idx >= 0) {
@@ -548,7 +544,7 @@ export default function Home() {
         return next;
       });
 
-      if (firstNewJobId) setActiveTab(firstNewJobId);
+      if (targetJobId) setActiveTab(targetJobId);
       showToast(
         added > 0
           ? `Importados ${added} CV${added > 1 ? "s" : ""}${
@@ -873,9 +869,6 @@ export default function Home() {
         <button className="btn btn-primary" onClick={openScanModal}>
           ⟳ Importar de Gmail
         </button>
-        <button className="btn btn-ghost" onClick={addManualSearch}>
-          + Nueva búsqueda
-        </button>
       </div>
       {toast && <div className="toast">{toast}</div>}
 
@@ -905,8 +898,8 @@ export default function Home() {
       {jobs.length === 0 && (
         <div className="card">
           <p className="empty">
-            Todavía no hay búsquedas. Tocá <strong>«Importar de Gmail»</strong> para traer los CVs
-            de tus avisos de ZonaJobs, o creá una búsqueda manual.
+            Todavía no hay búsquedas. Tocá <strong>«Importar de Gmail»</strong>, elegí un aviso y
+            traé los CVs de tus avisos de ZonaJobs.
           </p>
         </div>
       )}
