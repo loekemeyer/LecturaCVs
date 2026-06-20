@@ -1385,15 +1385,21 @@ export default function Home() {
                           </span>
                         </div>
                         {existing ? (
-                          <button
-                            className="btn btn-ghost"
-                            onClick={() => {
-                              setActiveTab(existing.id);
-                              setScanOpen(false);
-                            }}
-                          >
-                            Abrir
-                          </button>
+                          existing.id === activeTab ? (
+                            <button className="btn btn-ghost" disabled>
+                              Abierto
+                            </button>
+                          ) : (
+                            <button
+                              className="btn btn-ghost"
+                              onClick={() => {
+                                setActiveTab(existing.id);
+                                setScanOpen(false);
+                              }}
+                            >
+                              Abrir
+                            </button>
+                          )
                         ) : (
                           <button
                             className="btn btn-primary"
