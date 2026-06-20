@@ -92,6 +92,8 @@ export interface AvisoSummary {
   count: number;
   /** UIDs de los mails de ese aviso (para importarlos después). */
   uids: number[];
+  /** Fecha del primer CV (mail más viejo) de ese aviso, ISO. */
+  firstDate: string;
 }
 
 /**
@@ -103,7 +105,7 @@ export async function scanZonaJobsAvisos(months = 4): Promise<AvisoSummary[]> {
   const m = Math.min(4, Math.max(1, Math.round(months) || 4));
   const since = new Date(Date.now() - m * 31 * 24 * 60 * 60 * 1000);
   const client = imapClient();
-  const groups = new Map<string, number[]>();
+  const groups = new Map<string, { uids: number[]; firstDate: number }>();
   await client.connect();
   const lock = await client.getMailboxLock("INBOX");
   try {
@@ -111,9 +113,11 @@ export async function scanZonaJobsAvisos(months = 4): Promise<AvisoSummary[]> {
     if (uids && uids.length) {
       for await (const msg of client.fetch(uids, { envelope: true }, { uid: true })) {
         const title = parseJobTitle(msg.envelope?.subject || "", "") || "(sin título en el asunto)";
-        const arr = groups.get(title) || [];
-        arr.push(msg.uid);
-        groups.set(title, arr);
+        const t = (msg.envelope?.date || new Date()).getTime();
+        const g = groups.get(title) || { uids: [], firstDate: t };
+        g.uids.push(msg.uid);
+        if (t < g.firstDate) g.firstDate = t;
+        groups.set(title, g);
       }
     }
   } finally {
@@ -121,7 +125,12 @@ export async function scanZonaJobsAvisos(months = 4): Promise<AvisoSummary[]> {
     await client.logout().catch(() => {});
   }
   return [...groups.entries()]
-    .map(([title, uids]) => ({ title, count: uids.length, uids }))
+    .map(([title, g]) => ({
+      title,
+      count: g.uids.length,
+      uids: g.uids,
+      firstDate: new Date(g.firstDate).toISOString(),
+    }))
     .sort((a, b) => b.count - a.count);
 }
 

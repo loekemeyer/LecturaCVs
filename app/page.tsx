@@ -32,7 +32,7 @@ type JobFilters = {
 type Sede = { id: string; label: string; address: string };
 
 /** Aviso encontrado en Gmail durante el escaneo (antes de levantar los CVs). */
-type Aviso = { title: string; count: number; uids: number[] };
+type Aviso = { title: string; count: number; uids: number[]; firstDate: string };
 
 type Job = {
   id: string;
@@ -263,7 +263,8 @@ export default function Home() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed.jobs)) {
           setJobs(parsed.jobs);
-          setActiveTab(parsed.activeTab || parsed.jobs[0]?.id || "");
+          // Al entrar, arrancamos sin ninguna búsqueda abierta (pantalla limpia).
+          setActiveTab("");
         }
         if (Array.isArray(parsed.sedes)) setSedes(parsed.sedes);
         if (typeof parsed.companyValues === "string") setCompanyValues(parsed.companyValues);
@@ -909,6 +910,16 @@ export default function Home() {
         </div>
       )}
 
+      {/* al entrar (hay búsquedas pero ninguna elegida): pantalla limpia */}
+      {jobs.length > 0 && activeTab === "" && (
+        <div className="card">
+          <p className="empty">
+            Elegí un aviso de arriba para ver sus candidatos, o tocá{" "}
+            <strong>«+ Nueva búsqueda»</strong> para importar otro.
+          </p>
+        </div>
+      )}
+
       {/* panel general */}
       {activeTab === "dashboard" && <Dashboard jobs={jobs} onStatus={patchCandidate} />}
 
@@ -1372,6 +1383,7 @@ export default function Home() {
                         <span className="aviso-title">{a.title}</span>
                         <span className="aviso-count">
                           {a.count} CV{a.count !== 1 ? "s" : ""}
+                          {a.firstDate ? ` · primer CV ${shortDate(a.firstDate)}` : ""}
                         </span>
                       </div>
                       <button
