@@ -17,7 +17,7 @@ export async function POST() {
   }
 
   try {
-    const emails = await fetchZonaJobsEmails(50);
+    const emails = await fetchZonaJobsEmails(200);
     const applications = emails
       .map((e) => {
         const parsed = parseZonaJobsApplication(e.subject, e.text);

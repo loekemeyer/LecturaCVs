@@ -34,7 +34,7 @@ function htmlToText(html: string): string {
 
 const ZONAJOBS_SENDER = "no_reply@zonajobs.com.ar";
 
-export async function fetchZonaJobsEmails(limit = 50): Promise<RawApplicationEmail[]> {
+export async function fetchZonaJobsEmails(limit = 200): Promise<RawApplicationEmail[]> {
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
   if (!user || !pass) {
@@ -53,8 +53,10 @@ export async function fetchZonaJobsEmails(limit = 50): Promise<RawApplicationEma
   await client.connect();
   const lock = await client.getMailboxLock("INBOX");
   try {
-    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000); // últimos 90 días
-    const uids = await client.search({ from: ZONAJOBS_SENDER, since }, { uid: true });
+    // Sin ventana de tiempo: traemos todos los mails de ZonaJobs y nos quedamos
+    // con los más nuevos según `limit` (antes se limitaba a los últimos 90 días,
+    // lo que dejaba afuera postulaciones más viejas).
+    const uids = await client.search({ from: ZONAJOBS_SENDER }, { uid: true });
     if (uids && uids.length) {
       const recent = uids.slice(-limit);
       for await (const msg of client.fetch(
