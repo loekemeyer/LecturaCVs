@@ -253,6 +253,7 @@ export default function Home() {
   const [scanResults, setScanResults] = useState<Aviso[] | null>(null);
   const [scanError, setScanError] = useState("");
   const [importingTitle, setImportingTitle] = useState<string | null>(null);
+  const [importProg, setImportProg] = useState<{ done: number; total: number } | null>(null);
   const [toast, setToast] = useState("");
   // Candidatos a los que se les cambió la calificación recién: durante unos
   // segundos muestran "Deshacer" + cuenta regresiva en su fila (y quedan
@@ -726,24 +727,48 @@ export default function Home() {
   // Paso 2: levanta los CVs SOLO del aviso elegido (acotado, no se cae por timeout).
   async function importAviso(aviso: Aviso) {
     setImportingTitle(aviso.title);
+    setImportProg({ done: 0, total: aviso.uids.length });
     setToast("");
     try {
-      const res = await fetch("/api/inbox", {
-        method: "POST",
-        headers: { "content-type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ action: "import", uids: aviso.uids }),
-      });
-      if (res.status === 401) onAuthFail();
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
-      const apps: {
+      type App = {
         job: string;
         candidateName: string;
         expectedSalary: string;
         cvText: string;
         uid: number;
         date: string;
-      }[] = data.applications || [];
+      };
+      // Importamos de a tandas chicas: bajar cientos de CVs en una sola consulta
+      // supera el límite de tiempo del servidor (60s) y se cuelga. En lotes, cada
+      // pedido es rápido y vemos el progreso.
+      const CHUNK = 40;
+      const apps: App[] = [];
+      let importErr = "";
+      for (let i = 0; i < aviso.uids.length; i += CHUNK) {
+        const chunk = aviso.uids.slice(i, i + CHUNK);
+        let res: Response;
+        try {
+          res = await fetch("/api/inbox", {
+            method: "POST",
+            headers: { "content-type": "application/json", ...authHeaders() },
+            body: JSON.stringify({ action: "import", uids: chunk }),
+          });
+        } catch {
+          importErr = "Se cortó la conexión durante la importación.";
+          break;
+        }
+        if (res.status === 401) {
+          onAuthFail();
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          importErr = data?.error || `Error ${res.status}`;
+          break;
+        }
+        if (Array.isArray(data.applications)) apps.push(...(data.applications as App[]));
+        setImportProg({ done: Math.min(i + CHUNK, aviso.uids.length), total: aviso.uids.length });
+      }
 
       // Calculamos los cambios de forma SINCRÓNICA sobre el estado actual
       // (jobsRef) para saber YA cuál es la búsqueda destino y poder abrirla en el
@@ -807,21 +832,27 @@ export default function Home() {
         setActiveTab(openId);
         setScanOpen(false);
       }
+      const partial = importErr
+        ? ` Quedó a medias (${importErr}); tocá «Importar» de nuevo para traer el resto.`
+        : "";
       showToast(
         added > 0
           ? `Importados ${added} CV${added > 1 ? "s" : ""}${
               healed ? ` (y ${healed} actualizados)` : ""
-            }. Tocá «Evaluar candidatos».`
+            }.${partial || " Tocá «Evaluar candidatos»."}`
           : healed > 0
-            ? `Actualizados ${healed} CV${healed > 1 ? "s" : ""}. Ya podés tocar «Evaluar candidatos».`
-            : openId
-              ? "Estos CVs ya estaban importados; abrí la búsqueda."
-              : "No se encontraron CVs nuevos en ese aviso.",
+            ? `Actualizados ${healed} CV${healed > 1 ? "s" : ""}.${partial || " Ya podés tocar «Evaluar candidatos»."}`
+            : importErr
+              ? `No se pudo importar: ${importErr}`
+              : openId
+                ? "Estos CVs ya estaban importados; abrí la búsqueda."
+                : "No se encontraron CVs nuevos en ese aviso.",
       );
     } catch (e) {
       showToast("Error al importar: " + (e instanceof Error ? e.message : "desconocido"));
     } finally {
       setImportingTitle(null);
+      setImportProg(null);
     }
   }
 
@@ -1340,59 +1371,61 @@ export default function Home() {
             <div className="paso-row">
               <span className="paso">Paso 1</span>
               <span className="paso-desc">Sueldo ofrecido por la empresa</span>
-            </div>
-            <div className="salary-mode">
-              <label className={`salary-opt${!activeJob.salaryRange ? " on" : ""}`}>
-                <input
-                  type="radio"
-                  checked={!activeJob.salaryRange}
-                  onChange={() => patchJob(activeJob.id, { salaryRange: false, offeredSalaryMax: "" })}
-                />
-                Fijo
-              </label>
-              <label className={`salary-opt${activeJob.salaryRange ? " on" : ""}`}>
-                <input
-                  type="radio"
-                  checked={!!activeJob.salaryRange}
-                  onChange={() => patchJob(activeJob.id, { salaryRange: true })}
-                />
-                Rango
-              </label>
-            </div>
-            {activeJob.salaryRange ? (
-              <div className="salary-range">
+              <div className="salary-mode">
+                <label className={`salary-opt${!activeJob.salaryRange ? " on" : ""}`}>
+                  <input
+                    type="radio"
+                    checked={!activeJob.salaryRange}
+                    onChange={() =>
+                      patchJob(activeJob.id, { salaryRange: false, offeredSalaryMax: "" })
+                    }
+                  />
+                  Fijo
+                </label>
+                <label className={`salary-opt${activeJob.salaryRange ? " on" : ""}`}>
+                  <input
+                    type="radio"
+                    checked={!!activeJob.salaryRange}
+                    onChange={() => patchJob(activeJob.id, { salaryRange: true })}
+                  />
+                  Rango
+                </label>
+              </div>
+              {activeJob.salaryRange ? (
+                <div className="salary-range">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Desde"
+                    value={activeJob.offeredSalary}
+                    onChange={(e) =>
+                      patchJob(activeJob.id, { offeredSalary: formatMiles(e.target.value) })
+                    }
+                  />
+                  <span className="salary-dash">a</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Hasta"
+                    value={activeJob.offeredSalaryMax ?? ""}
+                    onChange={(e) =>
+                      patchJob(activeJob.id, { offeredSalaryMax: formatMiles(e.target.value) })
+                    }
+                  />
+                </div>
+              ) : (
                 <input
                   type="text"
                   inputMode="numeric"
-                  placeholder="Desde"
+                  placeholder="Ej: 1.200.000"
                   value={activeJob.offeredSalary}
                   onChange={(e) =>
                     patchJob(activeJob.id, { offeredSalary: formatMiles(e.target.value) })
                   }
+                  style={{ maxWidth: 200 }}
                 />
-                <span className="salary-dash">a</span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="Hasta"
-                  value={activeJob.offeredSalaryMax ?? ""}
-                  onChange={(e) =>
-                    patchJob(activeJob.id, { offeredSalaryMax: formatMiles(e.target.value) })
-                  }
-                />
-              </div>
-            ) : (
-              <input
-                type="text"
-                inputMode="numeric"
-                placeholder="Ej: 1.200.000"
-                value={activeJob.offeredSalary}
-                onChange={(e) =>
-                  patchJob(activeJob.id, { offeredSalary: formatMiles(e.target.value) })
-                }
-                style={{ maxWidth: 240 }}
-              />
-            )}
+              )}
+            </div>
 
             <div className="paso-row">
               <span className="paso">Paso 2</span>
@@ -1952,7 +1985,8 @@ export default function Home() {
                           >
                             {importingTitle === a.title ? (
                               <>
-                                <span className="spinner" /> Importando…
+                                <span className="spinner" /> Importando
+                                {importProg ? ` ${importProg.done}/${importProg.total}` : "…"}
                               </>
                             ) : (
                               "Importar"
