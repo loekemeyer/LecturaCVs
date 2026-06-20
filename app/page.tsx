@@ -788,7 +788,18 @@ export default function Home() {
         return next;
       });
 
-      if (targetJobId) setActiveTab(targetJobId);
+      // "Importar" = importar + abrir: pasamos directo a la búsqueda. Si no hubo
+      // CVs nuevos (ya estaban), abrimos igual la búsqueda que les corresponde.
+      const openId =
+        targetJobId ||
+        jobsRef.current.find(
+          (j) => norm(j.title) === norm(aviso.title) && j.candidates.length > 0,
+        )?.id ||
+        "";
+      if (openId) {
+        setActiveTab(openId);
+        setScanOpen(false);
+      }
       showToast(
         added > 0
           ? `Importados ${added} CV${added > 1 ? "s" : ""}${
@@ -796,9 +807,10 @@ export default function Home() {
             }. Tocá «Evaluar candidatos».`
           : healed > 0
             ? `Actualizados ${healed} CV${healed > 1 ? "s" : ""}. Ya podés tocar «Evaluar candidatos».`
-            : "No se encontraron CVs nuevos en ese aviso.",
+            : openId
+              ? "Estos CVs ya estaban importados; abrí la búsqueda."
+              : "No se encontraron CVs nuevos en ese aviso.",
       );
-      setScanOpen(false);
     } catch (e) {
       showToast("Error al importar: " + (e instanceof Error ? e.message : "desconocido"));
     } finally {
