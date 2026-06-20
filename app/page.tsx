@@ -745,63 +745,63 @@ export default function Home() {
         date: string;
       }[] = data.applications || [];
 
+      // Calculamos los cambios de forma SINCRÓNICA sobre el estado actual
+      // (jobsRef) para saber YA cuál es la búsqueda destino y poder abrirla en el
+      // mismo click. (Si lo hiciéramos dentro del updater de setJobs, el id no
+      // estaría disponible a tiempo y no se abriría la búsqueda.)
       let added = 0;
       let healed = 0;
       let targetJobId = "";
-      setJobs((prev) => {
-        const next = prev.map((j) => ({ ...j, candidates: [...j.candidates] }));
-        const byTitle = new Map(next.map((j) => [norm(j.title), j]));
-        for (const app of apps) {
-          const key = norm(app.job || "Sin búsqueda");
-          let job = byTitle.get(key);
-          if (!job) {
-            job = newJob(app.job || "Sin búsqueda", app.date);
-            next.push(job);
-            byTitle.set(key, job);
-          }
-          // El aviso elegido es donde caen los CVs: nos quedamos con su id para
-          // mostrarlo al terminar (sea nuevo o ya existente).
-          targetJobId = job.id;
-          if (app.uid != null) {
-            const idx = job.candidates.findIndex((c) => c.emailUid === app.uid);
-            if (idx >= 0) {
-              // Ya existe: refrescamos datos (ej. CV que antes vino vacío) sin perder
-              // el estado ni la evaluación.
-              const ex = job.candidates[idx];
-              job.candidates[idx] = {
-                ...ex,
-                cvText: app.cvText || ex.cvText,
-                name: ex.name && ex.name !== "Desconocido" ? ex.name : app.candidateName || ex.name,
-                expectedSalary: ex.expectedSalary || app.expectedSalary || "",
-              };
-              healed++;
-              continue;
-            }
-          }
-          job.candidates.push({
-            id: genId(),
-            source: "gmail",
-            name: app.candidateName || "Desconocido",
-            cvText: app.cvText,
-            expectedSalary: app.expectedSalary || "",
-            date: app.date,
-            emailUid: app.uid,
-            status: "nuevo",
-            scoreStatus: "pending",
-          });
-          if (app.date && app.date < job.firstDate) job.firstDate = app.date;
-          added++;
+      const next = jobsRef.current.map((j) => ({ ...j, candidates: [...j.candidates] }));
+      const byTitle = new Map(next.map((j) => [norm(j.title), j]));
+      for (const app of apps) {
+        const key = norm(app.job || "Sin búsqueda");
+        let job = byTitle.get(key);
+        if (!job) {
+          job = newJob(app.job || "Sin búsqueda", app.date);
+          next.push(job);
+          byTitle.set(key, job);
         }
-        return next;
-      });
+        // El aviso elegido es donde caen los CVs: nos quedamos con su id para
+        // mostrarlo al terminar (sea nuevo o ya existente).
+        targetJobId = job.id;
+        if (app.uid != null) {
+          const idx = job.candidates.findIndex((c) => c.emailUid === app.uid);
+          if (idx >= 0) {
+            // Ya existe: refrescamos datos (ej. CV que antes vino vacío) sin perder
+            // el estado ni la evaluación.
+            const ex = job.candidates[idx];
+            job.candidates[idx] = {
+              ...ex,
+              cvText: app.cvText || ex.cvText,
+              name: ex.name && ex.name !== "Desconocido" ? ex.name : app.candidateName || ex.name,
+              expectedSalary: ex.expectedSalary || app.expectedSalary || "",
+            };
+            healed++;
+            continue;
+          }
+        }
+        job.candidates.push({
+          id: genId(),
+          source: "gmail",
+          name: app.candidateName || "Desconocido",
+          cvText: app.cvText,
+          expectedSalary: app.expectedSalary || "",
+          date: app.date,
+          emailUid: app.uid,
+          status: "nuevo",
+          scoreStatus: "pending",
+        });
+        if (app.date && app.date < job.firstDate) job.firstDate = app.date;
+        added++;
+      }
+      setJobs(next);
 
       // "Importar" = importar + abrir: pasamos directo a la búsqueda. Si no hubo
       // CVs nuevos (ya estaban), abrimos igual la búsqueda que les corresponde.
       const openId =
         targetJobId ||
-        jobsRef.current.find(
-          (j) => norm(j.title) === norm(aviso.title) && j.candidates.length > 0,
-        )?.id ||
+        next.find((j) => norm(j.title) === norm(aviso.title) && j.candidates.length > 0)?.id ||
         "";
       if (openId) {
         setActiveTab(openId);
