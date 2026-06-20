@@ -28,6 +28,9 @@ type JobFilters = {
   maxDistance: string;
 };
 
+/** Sede laboral del perfil: una dirección reutilizable que se elige por búsqueda. */
+type Sede = { id: string; label: string; address: string };
+
 type Job = {
   id: string;
   title: string;
@@ -37,8 +40,10 @@ type Job = {
   jobContext: string;
   /** Texto del aviso de la búsqueda (pegado por el usuario). La IA lo usa para sugerir criterios. */
   posting?: string;
-  /** Dirección de la sede laboral de esta búsqueda (para distancia y tiempos de viaje). */
+  /** Dirección libre (compat con versiones previas). Hoy se prefiere sedeId. */
   plantAddress?: string;
+  /** Sede laboral elegida para esta búsqueda (id de una sede del perfil). */
+  sedeId?: string;
   candidates: Candidate[];
   /** Preferencias de filtrado por búsqueda (edad/sexo/distancia varían según el caso). */
   filters?: JobFilters;
@@ -190,7 +195,8 @@ function criteriaPayload(job: Job): Criterion[] {
 
 export default function Home() {
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [activeTab, setActiveTab] = useState<string>(""); // job.id | "dashboard" | ""
+  const [sedes, setSedes] = useState<Sede[]>([]);
+  const [activeTab, setActiveTab] = useState<string>(""); // job.id | "dashboard" | "perfil" | ""
   const [loaded, setLoaded] = useState(false);
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState("");
@@ -218,6 +224,10 @@ export default function Home() {
   useEffect(() => {
     jobsRef.current = jobs;
   }, [jobs]);
+  const sedesRef = useRef(sedes);
+  useEffect(() => {
+    sedesRef.current = sedes;
+  }, [sedes]);
   const fileRef = useRef<HTMLInputElement>(null);
   // Señal para pausar la evaluación en curso: los workers la leen antes de tomar
   // cada candidato. Es un ref (no estado) para que vean el valor más reciente sin
@@ -236,6 +246,7 @@ export default function Home() {
           setJobs(parsed.jobs);
           setActiveTab(parsed.activeTab || parsed.jobs[0]?.id || "");
         }
+        if (Array.isArray(parsed.sedes)) setSedes(parsed.sedes);
       }
     } catch {
       /* ignorar */
@@ -247,7 +258,7 @@ export default function Home() {
   useEffect(() => {
     if (!loaded) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ jobs, activeTab }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ jobs, activeTab, sedes }));
       saveWarnedRef.current = false;
     } catch {
       // Suele ser cuota llena (muchos CVs con texto + evaluaciones). Avisamos una
@@ -259,7 +270,7 @@ export default function Home() {
         );
       }
     }
-  }, [jobs, activeTab, loaded]);
+  }, [jobs, activeTab, sedes, loaded]);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -269,6 +280,30 @@ export default function Home() {
   // ---------- helpers de estado ----------
   function patchJob(jobId: string, patch: Partial<Job>) {
     setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, ...patch } : j)));
+  }
+
+  // ---------- sedes (perfil) ----------
+  function addSede() {
+    setSedes((prev) => [...prev, { id: genId(), label: "", address: "" }]);
+  }
+  function updateSede(id: string, patch: Partial<Sede>) {
+    setSedes((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  }
+  function removeSede(id: string) {
+    setSedes((prev) => prev.filter((s) => s.id !== id));
+    // Desasignamos la sede de las búsquedas que la usaban.
+    setJobs((prev) => prev.map((j) => (j.sedeId === id ? { ...j, sedeId: undefined } : j)));
+  }
+
+  // Dirección efectiva de una búsqueda: la sede elegida; si no eligió y hay una
+  // sola sede, esa por defecto; si no, la dirección libre vieja (compat).
+  function resolveAddress(job: Job, list: Sede[] = sedesRef.current): string {
+    if (job.sedeId) {
+      const s = list.find((x) => x.id === job.sedeId);
+      if (s?.address.trim()) return s.address.trim();
+    }
+    if (list.length === 1 && list[0].address.trim()) return list[0].address.trim();
+    return (job.plantAddress || "").trim();
   }
   function patchCandidate(jobId: string, candId: string, patch: Partial<Candidate>) {
     setJobs((prev) =>
@@ -467,7 +502,7 @@ export default function Home() {
     fd.append("jobContext", job.jobContext || job.title);
     fd.append("offeredSalary", job.offeredSalary);
     fd.append("expectedSalary", cand.expectedSalary);
-    fd.append("plantAddress", job.plantAddress || "");
+    fd.append("plantAddress", resolveAddress(job));
     // Reintentos ante errores transitorios (rate limit 429, sobrecarga 5xx y
     // cortes de red) con espera creciente: corriendo varios CVs en paralelo, un
     // pico momentáneo no debería marcar el CV como error.
@@ -630,7 +665,7 @@ export default function Home() {
           fd.append("criteria", JSON.stringify(criteriaPayload(job)));
           fd.append("jobContext", job.jobContext || job.title);
           fd.append("offeredSalary", job.offeredSalary);
-          fd.append("plantAddress", job.plantAddress || "");
+          fd.append("plantAddress", resolveAddress(job));
           const res = await fetch("/api/score", { method: "POST", body: fd });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
@@ -747,6 +782,12 @@ export default function Home() {
             📊 Panel general
           </button>
         )}
+        <button
+          className={`tab${activeTab === "perfil" ? " active" : ""}`}
+          onClick={() => setActiveTab("perfil")}
+        >
+          👤 Mi perfil
+        </button>
       </div>
 
       {/* vacío */}
@@ -761,6 +802,19 @@ export default function Home() {
 
       {/* panel general */}
       {activeTab === "dashboard" && <Dashboard jobs={jobs} onStatus={patchCandidate} />}
+
+      {/* mi perfil: sedes laborales + asignación por aviso */}
+      {activeTab === "perfil" && (
+        <Profile
+          jobs={jobs}
+          sedes={sedes}
+          onAddSede={addSede}
+          onUpdateSede={updateSede}
+          onRemoveSede={removeSede}
+          onSetJobSede={(jobId, sedeId) => patchJob(jobId, { sedeId })}
+          onOpenJob={(jobId) => setActiveTab(jobId)}
+        />
+      )}
 
       {/* vista de una búsqueda */}
       {activeJob && (
@@ -795,19 +849,44 @@ export default function Home() {
             />
 
             <label className="field" style={{ marginTop: 12 }}>
-              Dirección de la sede laboral
+              Sede laboral de esta búsqueda
             </label>
-            <input
-              type="text"
-              placeholder="Ej: Cervantes 2868, CABA"
-              value={activeJob.plantAddress ?? ""}
-              onChange={(e) => patchJob(activeJob.id, { plantAddress: e.target.value })}
-              style={{ maxWidth: 420, width: "100%" }}
-            />
-            <p className="field-hint">
-              Si el CV indica la dirección del candidato, la IA estima la distancia y el tiempo de
-              viaje hasta acá (en transporte público y en auto).
-            </p>
+            {sedes.length === 0 ? (
+              <p className="field-hint">
+                Todavía no cargaste sedes.{" "}
+                <button className="linklike" onClick={() => setActiveTab("perfil")}>
+                  Cargá tus direcciones en «Mi perfil»
+                </button>{" "}
+                para poder elegir una acá.
+              </p>
+            ) : (
+              <>
+                <select
+                  className="sede-select"
+                  value={activeJob.sedeId ?? (sedes.length === 1 ? sedes[0].id : "")}
+                  onChange={(e) =>
+                    patchJob(activeJob.id, { sedeId: e.target.value || undefined })
+                  }
+                >
+                  {sedes.length !== 1 && <option value="">(elegí una sede)</option>}
+                  {sedes.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label?.trim() || s.address || "(sede sin nombre)"}
+                    </option>
+                  ))}
+                </select>
+                <p className="field-hint">
+                  {sedes.length === 1
+                    ? "Hay una sola sede, queda elegida por defecto. "
+                    : ""}
+                  Si el CV indica la dirección del candidato, la IA estima la distancia y el tiempo
+                  de viaje hasta la sede (en transporte público y en auto).{" "}
+                  <button className="linklike" onClick={() => setActiveTab("perfil")}>
+                    Administrar sedes
+                  </button>
+                </p>
+              </>
+            )}
 
             <details className="criteria-box">
               <summary>Criterios y pesos de esta búsqueda</summary>
@@ -1296,6 +1375,111 @@ function CandidateRow({
         </div>
       )}
     </div>
+  );
+}
+
+function Profile({
+  jobs,
+  sedes,
+  onAddSede,
+  onUpdateSede,
+  onRemoveSede,
+  onSetJobSede,
+  onOpenJob,
+}: {
+  jobs: Job[];
+  sedes: Sede[];
+  onAddSede: () => void;
+  onUpdateSede: (id: string, patch: Partial<Sede>) => void;
+  onRemoveSede: (id: string) => void;
+  onSetJobSede: (jobId: string, sedeId: string | undefined) => void;
+  onOpenJob: (jobId: string) => void;
+}) {
+  return (
+    <>
+      <section className="card">
+        <div className="results-toolbar">
+          <h2 style={{ margin: 0 }}>👤 Mi perfil</h2>
+        </div>
+        <h3 className="profile-h3">Sedes laborales</h3>
+        <p className="field-hint" style={{ marginTop: 0 }}>
+          Cargá acá las direcciones de tus sedes. Después, en cada búsqueda, elegís a cuál
+          corresponde para que la IA calcule distancia y tiempo de viaje de los candidatos.
+        </p>
+        {sedes.length === 0 ? (
+          <p className="empty">Todavía no cargaste ninguna sede.</p>
+        ) : (
+          <div className="sede-list">
+            {sedes.map((s) => (
+              <div className="sede-row" key={s.id}>
+                <input
+                  type="text"
+                  className="sede-label"
+                  placeholder="Nombre (ej: Planta CABA)"
+                  value={s.label}
+                  onChange={(e) => onUpdateSede(s.id, { label: e.target.value })}
+                />
+                <input
+                  type="text"
+                  className="sede-addr"
+                  placeholder="Dirección (ej: Cervantes 2868, CABA)"
+                  value={s.address}
+                  onChange={(e) => onUpdateSede(s.id, { address: e.target.value })}
+                />
+                <button
+                  className="icon-btn"
+                  title="Eliminar sede"
+                  onClick={() => onRemoveSede(s.id)}
+                >
+                  🗑
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={onAddSede}>
+          + Agregar sede
+        </button>
+      </section>
+
+      <section className="card">
+        <h3 className="profile-h3" style={{ marginTop: 0 }}>
+          Avisos publicados
+        </h3>
+        {jobs.length === 0 ? (
+          <p className="empty">Todavía no hay búsquedas.</p>
+        ) : (
+          <div className="profile-jobs">
+            {jobs.map((j) => (
+              <div className="profile-job" key={j.id}>
+                <button className="profile-job-title linklike" onClick={() => onOpenJob(j.id)}>
+                  {j.title}
+                </button>
+                <select
+                  className="sede-select"
+                  value={j.sedeId ?? (sedes.length === 1 ? sedes[0].id : "")}
+                  onChange={(e) => onSetJobSede(j.id, e.target.value || undefined)}
+                  disabled={sedes.length === 0}
+                >
+                  {sedes.length === 0 ? (
+                    <option value="">(sin sedes cargadas)</option>
+                  ) : (
+                    <>
+                      {sedes.length !== 1 && <option value="">(elegí una sede)</option>}
+                      {sedes.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.label?.trim() || s.address || "(sede sin nombre)"}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </>
   );
 }
 
