@@ -1329,7 +1329,8 @@ export default function Home() {
               </button>
             </div>
 
-            <label className="field" style={{ marginTop: 12 }}>
+            <div className="paso">Paso 1</div>
+            <label className="field" style={{ marginTop: 4 }}>
               Sueldo ofrecido por la empresa
             </label>
             <div className="salary-mode">
@@ -1385,7 +1386,8 @@ export default function Home() {
               />
             )}
 
-            <label className="field" style={{ marginTop: 12 }}>
+            <div className="paso">Paso 2</div>
+            <label className="field" style={{ marginTop: 4 }}>
               Sede laboral de esta búsqueda
             </label>
             {sedes.length === 0 ? (
@@ -1425,6 +1427,7 @@ export default function Home() {
               </>
             )}
 
+            <div className="paso">Paso 3</div>
             <details className="criteria-box">
               <summary>Criterios y pesos de esta búsqueda</summary>
               <div style={{ marginTop: 12 }}>
@@ -1532,6 +1535,8 @@ export default function Home() {
               </div>
             </details>
 
+            <div className="paso">Paso 4 · Evaluar</div>
+
             {evalProgress?.jobId !== activeJob.id &&
               (() => {
                 const pendientes = activeJob.candidates.filter(
@@ -1552,6 +1557,7 @@ export default function Home() {
                       />
                       Todos
                     </label>
+                    <span className="eval-total">Total: {activeJob.candidates.length}</span>
                     <input
                       type="number"
                       min={1}

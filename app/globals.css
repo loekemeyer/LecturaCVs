@@ -699,6 +699,28 @@ select.status-select.cal-descartado {
 }
 
 /* control: cuántos CVs analizar */
+/* Pasos guía dentro de una búsqueda */
+.paso {
+  display: inline-block;
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--primary-dark);
+  background: var(--primary-soft);
+  border-radius: 10px;
+  padding: 6px 16px;
+  margin: 26px 0 8px;
+  letter-spacing: -0.01em;
+}
+.eval-total {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  white-space: nowrap;
+}
 .eval-scope {
   display: flex;
   align-items: center;
