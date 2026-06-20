@@ -35,6 +35,8 @@ type Job = {
   criteria: CriterionDraft[];
   offeredSalary: string;
   jobContext: string;
+  /** Texto del aviso de la búsqueda (pegado por el usuario). La IA lo usa para sugerir criterios. */
+  posting?: string;
   candidates: Candidate[];
   /** Preferencias de filtrado por búsqueda (edad/sexo/distancia varían según el caso). */
   filters?: JobFilters;
@@ -194,6 +196,7 @@ export default function Home() {
   } | null>(null);
   const [pausing, setPausing] = useState(false);
   const [reevalFor, setReevalFor] = useState<string | null>(null);
+  const [genCriteriaFor, setGenCriteriaFor] = useState<string | null>(null);
   const [viewCv, setViewCv] = useState<{
     name: string;
     html?: string;
@@ -275,6 +278,49 @@ export default function Home() {
       setReevalFor(jobId);
     } else {
       showToast("Criterios guardados ✓");
+    }
+  }
+
+  // Analiza el texto del aviso con la IA y reemplaza los criterios de la búsqueda
+  // por los sugeridos. El usuario después los edita a mano (agregar/sacar/peso).
+  async function generateCriteria(jobId: string) {
+    const job = jobsRef.current.find((j) => j.id === jobId);
+    if (!job) return;
+    const posting = (job.posting || "").trim();
+    if (!posting) {
+      showToast("Pegá el texto del aviso para que la IA sugiera los criterios.");
+      return;
+    }
+    setGenCriteriaFor(jobId);
+    try {
+      const res = await fetch("/api/criteria", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ posting, title: job.title }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+      const suggested: Criterion[] = Array.isArray(data.criteria) ? data.criteria : [];
+      if (!suggested.length) throw new Error("La IA no devolvió criterios.");
+      patchJob(jobId, {
+        criteria: suggested.map((c) => ({
+          id: genId(),
+          name: c.name,
+          weight: c.weight,
+          description: c.description || "",
+        })),
+      });
+      // Si ya había candidatos evaluados, ofrecemos re-evaluarlos con los nuevos criterios.
+      if (job.candidates.some((c) => c.evaluation)) setReevalFor(jobId);
+      showToast(
+        `Listo: ${suggested.length} criterios sugeridos por la IA. Revisalos y ajustá lo que quieras.`,
+      );
+    } catch (e) {
+      showToast(
+        "No se pudieron sugerir criterios: " + (e instanceof Error ? e.message : "error"),
+      );
+    } finally {
+      setGenCriteriaFor(null);
     }
   }
 
@@ -674,6 +720,35 @@ export default function Home() {
             <details className="criteria-box">
               <summary>Criterios y pesos de esta búsqueda</summary>
               <div style={{ marginTop: 12 }}>
+                <div className="ai-criteria">
+                  <p className="ai-criteria-hint">
+                    Pegá el texto del aviso de la búsqueda y la IA va a proponer los criterios y sus
+                    pesos según lo que pide ese puesto. Después podés agregar, sacar o editar lo que
+                    quieras.
+                  </p>
+                  <textarea
+                    className="posting-input"
+                    rows={5}
+                    placeholder="Pegá acá el aviso: descripción del puesto, requisitos, condiciones, zona, etc."
+                    value={activeJob.posting || ""}
+                    onChange={(e) => patchJob(activeJob.id, { posting: e.target.value })}
+                  />
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => generateCriteria(activeJob.id)}
+                    disabled={
+                      genCriteriaFor === activeJob.id || !(activeJob.posting || "").trim()
+                    }
+                  >
+                    {genCriteriaFor === activeJob.id ? (
+                      <>
+                        <span className="spinner" /> Analizando aviso…
+                      </>
+                    ) : (
+                      "✨ Sugerir criterios con IA"
+                    )}
+                  </button>
+                </div>
                 {activeJob.criteria.map((c) => {
                   const total = activeJob.criteria.reduce(
                     (s, x) => s + (x.name.trim() && x.weight > 0 ? x.weight : 0),
