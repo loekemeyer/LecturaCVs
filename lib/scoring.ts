@@ -173,6 +173,8 @@ export interface ScoreCvInput {
   expectedSalary?: string;
   /** Dirección de la sede laboral para estimar distancia y tiempos de viaje. Por búsqueda. */
   plantAddress?: string;
+  /** Valores/cultura de la empresa: factores generales que aplican a toda búsqueda. */
+  companyValues?: string;
 }
 
 // Parámetros de una request de evaluación. Sirve para la API normal (streaming)
@@ -195,6 +197,7 @@ export function buildScoreParams(input: ScoreCvInput): {
     offeredSalary,
     expectedSalary,
     plantAddress,
+    companyValues,
   } = input;
 
   if (!cvText && (!fileBase64 || !mediaType)) {
@@ -223,11 +226,17 @@ Los montos están en pesos argentinos mensuales completos (ej. "1.000.000" = un 
 - Sueldo pretendido por este candidato: ${expectedSalary?.trim() || "no especificado"}`
       : "";
 
+  const valuesBlock = companyValues?.trim()
+    ? `\n\nValores y cultura de la empresa (aplican a TODA búsqueda; son factores generales que SIEMPRE hay que tener en cuenta al evaluar el encaje del candidato, además de los criterios de arriba):
+${companyValues.trim()}
+Reflejá explícitamente en el resumen, las fortalezas y las dudas qué tan bien encaja el candidato con estos valores.`
+    : "";
+
   const instruction = `Contexto del puesto:
 ${jobContext.trim() || "(No especificado.)"}
 
 Evaluá el CV adjunto según estos criterios. Devolvé un objeto por criterio, en el mismo orden y con el mismo nombre exacto que aparece acá:
-${criteriaList}${salaryBlock}
+${criteriaList}${salaryBlock}${valuesBlock}
 
 Además, extraé el nombre del postulante, un resumen del perfil, sus fortalezas y las dudas o información faltante respecto del puesto.
 

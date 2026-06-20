@@ -79,14 +79,23 @@ function normalizeWeights(items: Criterion[]): Criterion[] {
 }
 
 /** Analiza el texto de un aviso y devuelve los criterios sugeridos por la IA. */
-export async function suggestCriteria(posting: string, title?: string): Promise<Criterion[]> {
+export async function suggestCriteria(
+  posting: string,
+  title?: string,
+  companyValues?: string,
+): Promise<Criterion[]> {
   const text = (posting || "").trim();
   if (!text) throw new Error("No hay texto del aviso para analizar.");
 
   const client = new Anthropic(); // toma ANTHROPIC_API_KEY del entorno
 
+  const valuesBlock = companyValues?.trim()
+    ? `\n\nValores y cultura de la empresa (aplican a TODA búsqueda): ${companyValues.trim()}
+Incorporá SIEMPRE, además de lo específico del aviso, uno o más criterios que reflejen estos valores generales (ej. estabilidad a largo plazo, posibilidad de progreso, etc.).`
+    : "";
+
   const instruction = `${title?.trim() ? `Puesto / búsqueda: ${title.trim()}\n\n` : ""}Texto del aviso:
-${text}
+${text}${valuesBlock}
 
 Definí los criterios de evaluación para esta búsqueda.`;
 

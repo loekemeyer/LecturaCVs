@@ -202,6 +202,7 @@ function criteriaPayload(job: Job): Criterion[] {
 export default function Home() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [sedes, setSedes] = useState<Sede[]>([]);
+  const [companyValues, setCompanyValues] = useState("");
   const [activeTab, setActiveTab] = useState<string>(""); // job.id | "dashboard" | "perfil" | ""
   const [loaded, setLoaded] = useState(false);
   // Importar de Gmail: escaneo de avisos -> elegir -> levantar CVs.
@@ -240,6 +241,10 @@ export default function Home() {
   useEffect(() => {
     sedesRef.current = sedes;
   }, [sedes]);
+  const companyValuesRef = useRef(companyValues);
+  useEffect(() => {
+    companyValuesRef.current = companyValues;
+  }, [companyValues]);
   const fileRef = useRef<HTMLInputElement>(null);
   // Señal para pausar la evaluación en curso: los workers la leen antes de tomar
   // cada candidato. Es un ref (no estado) para que vean el valor más reciente sin
@@ -261,6 +266,7 @@ export default function Home() {
           setActiveTab(parsed.activeTab || parsed.jobs[0]?.id || "");
         }
         if (Array.isArray(parsed.sedes)) setSedes(parsed.sedes);
+        if (typeof parsed.companyValues === "string") setCompanyValues(parsed.companyValues);
       }
     } catch {
       /* ignorar */
@@ -272,7 +278,10 @@ export default function Home() {
   useEffect(() => {
     if (!loaded) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ jobs, activeTab, sedes }));
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ jobs, activeTab, sedes, companyValues }),
+      );
       saveWarnedRef.current = false;
     } catch {
       // Suele ser cuota llena (muchos CVs con texto + evaluaciones). Avisamos una
@@ -284,7 +293,7 @@ export default function Home() {
         );
       }
     }
-  }, [jobs, activeTab, sedes, loaded]);
+  }, [jobs, activeTab, sedes, companyValues, loaded]);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -376,7 +385,11 @@ export default function Home() {
       const res = await fetch("/api/criteria", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ posting, title: job.title }),
+        body: JSON.stringify({
+          posting,
+          title: job.title,
+          companyValues: companyValuesRef.current,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
@@ -563,6 +576,7 @@ export default function Home() {
     fd.append("offeredSalary", job.offeredSalary);
     fd.append("expectedSalary", cand.expectedSalary);
     fd.append("plantAddress", resolveAddress(job));
+    fd.append("companyValues", companyValuesRef.current || "");
     // Reintentos ante errores transitorios (rate limit 429, sobrecarga 5xx y
     // cortes de red) con espera creciente: corriendo varios CVs en paralelo, un
     // pico momentáneo no debería marcar el CV como error.
@@ -764,6 +778,7 @@ export default function Home() {
           fd.append("jobContext", job.jobContext || job.title);
           fd.append("offeredSalary", job.offeredSalary);
           fd.append("plantAddress", resolveAddress(job));
+          fd.append("companyValues", companyValuesRef.current || "");
           const res = await fetch("/api/score", { method: "POST", body: fd });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
@@ -904,6 +919,8 @@ export default function Home() {
         <Profile
           jobs={jobs}
           sedes={sedes}
+          companyValues={companyValues}
+          onCompanyValues={setCompanyValues}
           onAddSede={addSede}
           onUpdateSede={updateSede}
           onRemoveSede={removeSede}
@@ -1583,6 +1600,8 @@ function CandidateRow({
 function Profile({
   jobs,
   sedes,
+  companyValues,
+  onCompanyValues,
   onAddSede,
   onUpdateSede,
   onRemoveSede,
@@ -1591,6 +1610,8 @@ function Profile({
 }: {
   jobs: Job[];
   sedes: Sede[];
+  companyValues: string;
+  onCompanyValues: (v: string) => void;
   onAddSede: () => void;
   onUpdateSede: (id: string, patch: Partial<Sede>) => void;
   onRemoveSede: (id: string) => void;
@@ -1603,7 +1624,27 @@ function Profile({
         <div className="results-toolbar">
           <h2 style={{ margin: 0 }}>👤 Mi perfil</h2>
         </div>
-        <h3 className="profile-h3">Sedes laborales</h3>
+        <h3 className="profile-h3" style={{ marginTop: 8 }}>
+          Valores y cultura de la empresa
+        </h3>
+        <p className="field-hint" style={{ marginTop: 0 }}>
+          Factores generales que aplican a <strong>todas</strong> las búsquedas (ej. estabilidad a
+          largo plazo, posibilidad de progreso, trabajo en equipo). La IA los tiene en cuenta al
+          evaluar cada candidato y los incluye al sugerir criterios desde un aviso.
+        </p>
+        <textarea
+          className="posting-input"
+          rows={4}
+          placeholder="Ej: Buscamos gente con proyección de largo plazo, ganas de crecer dentro de la empresa, compromiso y buen trato con el equipo…"
+          value={companyValues}
+          onChange={(e) => onCompanyValues(e.target.value)}
+        />
+      </section>
+
+      <section className="card">
+        <div className="results-toolbar">
+          <h2 style={{ margin: 0 }}>🏢 Sedes laborales</h2>
+        </div>
         <p className="field-hint" style={{ marginTop: 0 }}>
           Cargá acá las direcciones de tus sedes. Después, en cada búsqueda, elegís a cuál
           corresponde para que la IA calcule distancia y tiempo de viaje de los candidatos.

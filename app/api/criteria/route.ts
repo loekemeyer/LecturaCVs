@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { posting?: unknown; title?: unknown };
+  let body: { posting?: unknown; title?: unknown; companyValues?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -26,10 +26,11 @@ export async function POST(req: Request) {
 
   const posting = String(body?.posting ?? "").trim();
   const title = String(body?.title ?? "").trim();
+  const companyValues = String(body?.companyValues ?? "").trim();
   if (!posting) return bad("Pegá el texto del aviso para que la IA sugiera los criterios.");
 
   try {
-    const criteria = await suggestCriteria(posting, title);
+    const criteria = await suggestCriteria(posting, title, companyValues);
     return Response.json({ criteria });
   } catch (err) {
     console.error("Error al sugerir criterios:", err);
