@@ -54,6 +54,9 @@ const STORAGE_KEY = "lecturacvs:ats:v1";
 // tokens, no por tiempo): solo termina antes. Con reintento ante rate limit
 // (ver scoreCvText) podemos correr varios a la vez sin que se marquen como error.
 const CONCURRENCY = 6;
+// Máximo de CVs que se analizan por tanda (para controlar tiempo y costo). Se
+// importan todos, pero se evalúan de a 200 como mucho por vez.
+const MAX_PER_RUN = 200;
 
 const genId = () =>
   typeof crypto !== "undefined" && crypto.randomUUID
@@ -552,7 +555,8 @@ export default function Home() {
   // Decide cuántos analizar según el control "Todos / cantidad" y arranca.
   function startEvaluation(jobId: string) {
     if (evalAll) {
-      evaluateJob(jobId, {});
+      // "Todos" = todos los pendientes, pero máximo 200 por tanda.
+      evaluateJob(jobId, { limit: MAX_PER_RUN });
       return;
     }
     const n = parseInt(evalCount, 10);
@@ -560,7 +564,7 @@ export default function Home() {
       showToast("Escribí cuántos CVs querés analizar, o tildá «Todos».");
       return;
     }
-    evaluateJob(jobId, { limit: n });
+    evaluateJob(jobId, { limit: Math.min(n, MAX_PER_RUN) });
   }
 
   // reevaluateAll=false (uso normal y "retomar"): evalúa solo los que faltan
@@ -648,7 +652,15 @@ export default function Home() {
       );
     } else {
       const n = targets.length;
-      showToast(`Análisis terminado: ${n} CV${n > 1 ? "s" : ""} procesado${n > 1 ? "s" : ""}.`);
+      const left =
+        jobsRef.current
+          .find((j) => j.id === jobId)
+          ?.candidates.filter((c) => c.cvText && c.scoreStatus === "pending").length ?? 0;
+      showToast(
+        left > 0
+          ? `Procesados ${n}. Quedan ${left} sin evaluar; tocá «Evaluar» de nuevo para la próxima tanda (máx. ${MAX_PER_RUN}).`
+          : `Análisis terminado: ${n} CV${n > 1 ? "s" : ""} procesado${n > 1 ? "s" : ""}.`,
+      );
     }
   }
 
@@ -1029,6 +1041,7 @@ export default function Home() {
                     <input
                       type="number"
                       min={1}
+                      max={MAX_PER_RUN}
                       className="eval-scope-input"
                       placeholder="cantidad"
                       value={evalCount}
@@ -1038,7 +1051,9 @@ export default function Home() {
                         setEvalAll(false);
                       }}
                     />
-                    <span className="eval-scope-hint">{pendientes} sin evaluar</span>
+                    <span className="eval-scope-hint">
+                      {pendientes} sin evaluar · máx. {MAX_PER_RUN} por tanda
+                    </span>
                   </div>
                 );
               })()}
