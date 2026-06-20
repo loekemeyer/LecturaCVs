@@ -346,6 +346,12 @@ textarea {
   flex-wrap: wrap;
   margin-top: 14px;
 }
+.result-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
 
 /* control: cuántos CVs analizar */
 .eval-scope {

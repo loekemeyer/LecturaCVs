@@ -664,6 +664,35 @@ export default function Home() {
     }
   }
 
+  // Re-evalúa un solo candidato (útil para refrescar uno sin re-hacer la tanda).
+  async function reevaluateOne(jobId: string, candId: string) {
+    if (evalProgress) {
+      showToast("Hay un análisis en curso; esperá a que termine.");
+      return;
+    }
+    const job = jobsRef.current.find((j) => j.id === jobId);
+    const cand = job?.candidates.find((c) => c.id === candId);
+    if (!job || !cand || !cand.cvText) return;
+    if (!criteriaPayload(job).length) {
+      showToast("Definí al menos un criterio con peso para esta búsqueda.");
+      return;
+    }
+    patchCandidate(jobId, candId, { scoreStatus: "scoring", error: undefined });
+    try {
+      const ev = await scoreCvText(job, cand);
+      patchCandidate(jobId, candId, {
+        evaluation: ev,
+        scoreStatus: "done",
+        name: ev.candidateName || cand.name,
+      });
+    } catch (e) {
+      patchCandidate(jobId, candId, {
+        scoreStatus: "error",
+        error: e instanceof Error ? e.message : "Error",
+      });
+    }
+  }
+
   // ---------- subir archivo manual a una búsqueda ----------
   function addFilesToJob(jobId: string, list: FileList | File[]) {
     const supported = Array.from(list).filter(isSupportedFile);
@@ -1219,6 +1248,7 @@ export default function Home() {
                     onToggle={() => toggleCand(c.id)}
                     onStatus={(s) => patchCandidate(activeJob.id, c.id, { status: s })}
                     onViewCv={openCv}
+                    onReevaluate={() => reevaluateOne(activeJob.id, c.id)}
                   />
                 ))}
               </div>
@@ -1263,6 +1293,7 @@ function CandidateRow({
   onToggle,
   onStatus,
   onViewCv,
+  onReevaluate,
 }: {
   cand: Candidate;
   rank: number;
@@ -1270,6 +1301,7 @@ function CandidateRow({
   onToggle: () => void;
   onStatus: (s: Status) => void;
   onViewCv: (c: { name: string; emailUid?: number; cvText?: string }) => void;
+  onReevaluate: () => void;
 }) {
   const ev = cand.evaluation;
   return (
@@ -1319,17 +1351,33 @@ function CandidateRow({
 
       {open && (
         <div className="result-body">
-          {(cand.cvText || cand.emailUid != null) && (
-            <button
-              className="btn btn-ghost"
-              style={{ marginBottom: 8 }}
-              onClick={() =>
-                onViewCv({ name: cand.name, emailUid: cand.emailUid, cvText: cand.cvText })
-              }
-            >
-              📄 Ver CV completo
-            </button>
-          )}
+          <div className="result-actions">
+            {(cand.cvText || cand.emailUid != null) && (
+              <button
+                className="btn btn-ghost"
+                onClick={() =>
+                  onViewCv({ name: cand.name, emailUid: cand.emailUid, cvText: cand.cvText })
+                }
+              >
+                📄 Ver CV completo
+              </button>
+            )}
+            {cand.cvText && (
+              <button
+                className="btn btn-ghost"
+                onClick={onReevaluate}
+                disabled={cand.scoreStatus === "scoring"}
+              >
+                {cand.scoreStatus === "scoring" ? (
+                  <>
+                    <span className="spinner" /> Re-evaluando…
+                  </>
+                ) : (
+                  "🔄 Re-evaluar"
+                )}
+              </button>
+            )}
+          </div>
           {cand.scoreStatus === "error" && (
             <div className="error-box">{cand.error || "No se pudo evaluar."}</div>
           )}
