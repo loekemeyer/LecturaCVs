@@ -971,6 +971,21 @@ export default function Home() {
     [jobs],
   );
 
+  // Índice por nombre para detectar al mismo candidato en varias búsquedas.
+  const candidateIndex = useMemo(() => {
+    const map = new Map<string, { jobId: string; title: string }[]>();
+    for (const j of jobs) {
+      for (const c of j.candidates) {
+        const key = norm(c.name);
+        if (!key) continue;
+        const arr = map.get(key) ?? [];
+        if (!arr.some((x) => x.jobId === j.id)) arr.push({ jobId: j.id, title: j.title });
+        map.set(key, arr);
+      }
+    }
+    return map;
+  }, [jobs]);
+
   function rankedCandidates(job: Job): Candidate[] {
     return [...job.candidates].sort((a, b) => {
       const sa = a.evaluation?.overallScore ?? -1;
@@ -1554,6 +1569,10 @@ export default function Home() {
                     onReevaluate={() => reevaluateOne(activeJob.id, c.id)}
                     onNotes={(t) => patchCandidate(activeJob.id, c.id, { notes: t })}
                     jobTitle={activeJob.title}
+                    otherJobs={(candidateIndex.get(norm(c.name)) ?? []).filter(
+                      (x) => x.jobId !== activeJob.id,
+                    )}
+                    onOpenJob={(id) => setActiveTab(id)}
                   />
                 ))}
               </div>
@@ -1738,6 +1757,8 @@ function CandidateRow({
   onConfirm,
   onNotes,
   jobTitle,
+  otherJobs,
+  onOpenJob,
 }: {
   cand: Candidate;
   rank: number;
@@ -1753,6 +1774,8 @@ function CandidateRow({
   onConfirm?: () => void;
   onNotes?: (t: string) => void;
   jobTitle?: string;
+  otherJobs?: { jobId: string; title: string }[];
+  onOpenJob?: (jobId: string) => void;
 }) {
   const ev = cand.evaluation;
   const cur = califOf(cand);
@@ -1788,7 +1811,17 @@ function CandidateRow({
           </div>
         )}
         <div className="result-id" onClick={onToggle}>
-          <div className="who">{cand.name}</div>
+          <div className="who">
+            {cand.name}
+            {otherJobs && otherJobs.length > 0 && (
+              <span
+                className="dup-flag"
+                title={`También se postuló a ${otherJobs.length} búsqueda(s) más`}
+              >
+                🔁 {otherJobs.length}
+              </span>
+            )}
+          </div>
           <div className="file">
             {cand.source === "gmail" ? "ZonaJobs" : "Archivo"}
             {cand.date ? ` · se postuló ${hace(cand.date)}` : ""}
@@ -1843,6 +1876,23 @@ function CandidateRow({
 
       {open && (
         <div className="result-body">
+          {otherJobs && otherJobs.length > 0 && (
+            <div className="dup-note">
+              🔁 Este candidato también se postuló a:{" "}
+              {otherJobs.map((o, k) => (
+                <span key={o.jobId}>
+                  <button
+                    type="button"
+                    className="linklike"
+                    onClick={() => onOpenJob?.(o.jobId)}
+                  >
+                    {o.title}
+                  </button>
+                  {k < otherJobs.length - 1 ? ", " : ""}
+                </span>
+              ))}
+            </div>
+          )}
           <div className="result-actions">
             {(cand.cvText || cand.emailUid != null) && (
               <button
