@@ -4,6 +4,7 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import type { Readable } from "node:stream";
+import { parseJobTitle } from "./zonajobs";
 
 export interface RawApplicationEmail {
   uid: number;
@@ -75,87 +76,118 @@ function htmlToText(html: string): string {
 
 const ZONAJOBS_SENDER = "no_reply@zonajobs.com.ar";
 
-export async function fetchZonaJobsEmails(): Promise<RawApplicationEmail[]> {
+function imapClient(): ImapFlow {
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
   if (!user || !pass) {
     throw new Error("Faltan GMAIL_USER o GMAIL_APP_PASSWORD en el servidor.");
   }
+  return new ImapFlow({ host: "imap.gmail.com", port: 993, secure: true, auth: { user, pass }, logger: false });
+}
 
-  const client = new ImapFlow({
-    host: "imap.gmail.com",
-    port: 993,
-    secure: true,
-    auth: { user, pass },
-    logger: false,
-  });
+export interface AvisoSummary {
+  /** Nombre del aviso/búsqueda (del asunto). */
+  title: string;
+  /** Cantidad de CVs (mails) de ese aviso en el rango. */
+  count: number;
+  /** UIDs de los mails de ese aviso (para importarlos después). */
+  uids: number[];
+}
 
-  const out: RawApplicationEmail[] = [];
+/**
+ * Escaneo LIVIANO: lista los avisos de ZonaJobs en los últimos `months` meses
+ * (máx. 4) leyendo solo los ASUNTOS (sin bajar cuerpos ni fotos). Devuelve cada
+ * aviso con su cantidad de CVs. Es rápido aunque haya miles de mails.
+ */
+export async function scanZonaJobsAvisos(months = 4): Promise<AvisoSummary[]> {
+  const m = Math.min(4, Math.max(1, Math.round(months) || 4));
+  const since = new Date(Date.now() - m * 31 * 24 * 60 * 60 * 1000);
+  const client = imapClient();
+  const groups = new Map<string, number[]>();
   await client.connect();
   const lock = await client.getMailboxLock("INBOX");
   try {
-    // Sin ventana de tiempo ni tope: traemos TODOS los mails de ZonaJobs. El
-    // límite de cuántos CVs analizar se aplica después, en la app.
-    const uids = await client.search({ from: ZONAJOBS_SENDER }, { uid: true });
+    const uids = await client.search({ from: ZONAJOBS_SENDER, since }, { uid: true });
     if (uids && uids.length) {
-      // 1ª pasada (liviana): solo metadatos + estructura, SIN bajar cuerpos ni fotos.
-      const metas: {
-        uid: number;
-        subject: string;
-        date: string;
-        textPart: { part: string; charset?: string } | null;
-      }[] = [];
-      for await (const msg of client.fetch(
-        uids,
-        { bodyStructure: true, envelope: true },
-        { uid: true },
-      )) {
-        metas.push({
-          uid: msg.uid,
-          subject: msg.envelope?.subject || "",
-          date: (msg.envelope?.date || new Date()).toISOString(),
-          textPart: pickTextPart(msg.bodyStructure as BodyNode | undefined),
-        });
-      }
-
-      // 2ª pasada: bajamos SOLO la parte de texto de cada mail (la foto del
-      // candidato queda en el servidor; se baja recién al abrir "Ver CV completo").
-      for (const m of metas) {
-        let bodyText = "";
-        try {
-          if (m.textPart) {
-            const dl = await client.download(String(m.uid), m.textPart.part, { uid: true });
-            if (dl?.content) {
-              const raw = decodeBuffer(await streamToBuffer(dl.content), m.textPart.charset);
-              bodyText = /<[a-z!/]/i.test(raw) ? htmlToText(raw) : raw.trim();
-            }
-          }
-        } catch {
-          bodyText = "";
-        }
-        // Respaldo: si no pudimos sacar el texto, bajamos el mail completo y lo
-        // parseamos como antes (solo para ese mail puntual).
-        if (!bodyText) {
-          try {
-            const dl = await client.download(String(m.uid), undefined, { uid: true });
-            if (dl?.content) {
-              const parsed = await simpleParser(await streamToBuffer(dl.content));
-              const plain = (parsed.text || "").trim();
-              bodyText = plain.length > 20 ? plain : htmlToText(parsed.html || "");
-            }
-          } catch {
-            /* saltar mail que no se pudo leer */
-          }
-        }
-        out.push({ uid: m.uid, subject: m.subject, text: bodyText, date: m.date });
+      for await (const msg of client.fetch(uids, { envelope: true }, { uid: true })) {
+        const title = parseJobTitle(msg.envelope?.subject || "", "") || "(sin título en el asunto)";
+        const arr = groups.get(title) || [];
+        arr.push(msg.uid);
+        groups.set(title, arr);
       }
     }
   } finally {
     lock.release();
     await client.logout().catch(() => {});
   }
+  return [...groups.entries()]
+    .map(([title, uids]) => ({ title, count: uids.length, uids }))
+    .sort((a, b) => b.count - a.count);
+}
 
-  return out.reverse(); // más nuevos primero
+/**
+ * Importa SOLO los mails indicados (los de un aviso elegido), bajando únicamente
+ * la parte de texto de cada uno (sin fotos). Al estar acotado a un aviso, es
+ * rápido y no se cae por timeout.
+ */
+export async function fetchZonaJobsEmailsByUids(uids: number[]): Promise<RawApplicationEmail[]> {
+  if (!uids.length) return [];
+  const client = imapClient();
+  const out: RawApplicationEmail[] = [];
+  await client.connect();
+  const lock = await client.getMailboxLock("INBOX");
+  try {
+    // 1ª pasada (liviana): metadatos + estructura, SIN bajar cuerpos ni fotos.
+    const metas: {
+      uid: number;
+      subject: string;
+      date: string;
+      textPart: { part: string; charset?: string } | null;
+    }[] = [];
+    for await (const msg of client.fetch(uids, { bodyStructure: true, envelope: true }, { uid: true })) {
+      metas.push({
+        uid: msg.uid,
+        subject: msg.envelope?.subject || "",
+        date: (msg.envelope?.date || new Date()).toISOString(),
+        textPart: pickTextPart(msg.bodyStructure as BodyNode | undefined),
+      });
+    }
+
+    // 2ª pasada: bajamos SOLO la parte de texto de cada mail (la foto queda en
+    // el servidor; se baja recién al abrir "Ver CV completo").
+    for (const meta of metas) {
+      let bodyText = "";
+      try {
+        if (meta.textPart) {
+          const dl = await client.download(String(meta.uid), meta.textPart.part, { uid: true });
+          if (dl?.content) {
+            const raw = decodeBuffer(await streamToBuffer(dl.content), meta.textPart.charset);
+            bodyText = /<[a-z!/]/i.test(raw) ? htmlToText(raw) : raw.trim();
+          }
+        }
+      } catch {
+        bodyText = "";
+      }
+      // Respaldo: si no pudimos sacar el texto, bajamos el mail completo.
+      if (!bodyText) {
+        try {
+          const dl = await client.download(String(meta.uid), undefined, { uid: true });
+          if (dl?.content) {
+            const parsed = await simpleParser(await streamToBuffer(dl.content));
+            const plain = (parsed.text || "").trim();
+            bodyText = plain.length > 20 ? plain : htmlToText(parsed.html || "");
+          }
+        } catch {
+          /* saltar mail que no se pudo leer */
+        }
+      }
+      out.push({ uid: meta.uid, subject: meta.subject, text: bodyText, date: meta.date });
+    }
+  } finally {
+    lock.release();
+    await client.logout().catch(() => {});
+  }
+  return out.reverse();
 }
 
 // Trae el HTML original de un mail puntual (por uid), con las imágenes embebidas

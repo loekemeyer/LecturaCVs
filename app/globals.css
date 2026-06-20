@@ -1245,3 +1245,56 @@ textarea {
   background: #fff;
   border-radius: 0 0 14px 14px;
 }
+/* modal de importar de Gmail (escaneo de avisos) */
+.scan-body {
+  white-space: normal;
+}
+.scan-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.scan-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+.scan-months {
+  max-width: 130px;
+  width: auto;
+}
+.aviso-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.aviso-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.aviso-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.aviso-title {
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aviso-count {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.aviso-row .btn {
+  flex-shrink: 0;
+}

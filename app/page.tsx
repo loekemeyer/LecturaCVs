@@ -31,6 +31,9 @@ type JobFilters = {
 /** Sede laboral del perfil: una dirección reutilizable que se elige por búsqueda. */
 type Sede = { id: string; label: string; address: string };
 
+/** Aviso encontrado en Gmail durante el escaneo (antes de levantar los CVs). */
+type Aviso = { title: string; count: number; uids: number[] };
+
 type Job = {
   id: string;
   title: string;
@@ -201,7 +204,13 @@ export default function Home() {
   const [sedes, setSedes] = useState<Sede[]>([]);
   const [activeTab, setActiveTab] = useState<string>(""); // job.id | "dashboard" | "perfil" | ""
   const [loaded, setLoaded] = useState(false);
-  const [importing, setImporting] = useState(false);
+  // Importar de Gmail: escaneo de avisos -> elegir -> levantar CVs.
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanMonths, setScanMonths] = useState(4);
+  const [scanning, setScanning] = useState(false);
+  const [scanResults, setScanResults] = useState<Aviso[] | null>(null);
+  const [scanError, setScanError] = useState("");
+  const [importingTitle, setImportingTitle] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const [evalProgress, setEvalProgress] = useState<{
     jobId: string;
@@ -428,12 +437,45 @@ export default function Home() {
     setActiveTab((prev) => (prev === jobId ? "" : prev));
   }
 
-  // ---------- importar de Gmail ----------
-  async function importFromGmail() {
-    setImporting(true);
+  // ---------- importar de Gmail (escaneo -> elegir aviso -> levantar CVs) ----------
+  function openScanModal() {
+    setScanOpen(true);
+    setScanResults(null);
+    setScanError("");
+    void scanAvisos(scanMonths);
+  }
+
+  // Paso 1 (liviano): busca qué avisos hay en Gmail en el período elegido.
+  async function scanAvisos(months: number) {
+    setScanning(true);
+    setScanError("");
+    try {
+      const res = await fetch("/api/inbox", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "scan", months }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+      setScanResults(Array.isArray(data.avisos) ? data.avisos : []);
+    } catch (e) {
+      setScanError(e instanceof Error ? e.message : "No se pudo buscar.");
+      setScanResults(null);
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  // Paso 2: levanta los CVs SOLO del aviso elegido (acotado, no se cae por timeout).
+  async function importAviso(aviso: Aviso) {
+    setImportingTitle(aviso.title);
     setToast("");
     try {
-      const res = await fetch("/api/inbox", { method: "POST" });
+      const res = await fetch("/api/inbox", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "import", uids: aviso.uids }),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
       const apps: {
@@ -493,20 +535,21 @@ export default function Home() {
         return next;
       });
 
-      if (firstNewJobId) setActiveTab((prev) => prev || firstNewJobId);
+      if (firstNewJobId) setActiveTab(firstNewJobId);
       showToast(
         added > 0
           ? `Importados ${added} CV${added > 1 ? "s" : ""}${
               healed ? ` (y ${healed} actualizados)` : ""
-            }. Revisá las pestañas y tocá «Evaluar candidatos».`
+            }. Tocá «Evaluar candidatos».`
           : healed > 0
             ? `Actualizados ${healed} CV${healed > 1 ? "s" : ""}. Ya podés tocar «Evaluar candidatos».`
-            : "No se encontraron CVs nuevos en el correo.",
+            : "No se encontraron CVs nuevos en ese aviso.",
       );
+      setScanOpen(false);
     } catch (e) {
       showToast("Error al importar: " + (e instanceof Error ? e.message : "desconocido"));
     } finally {
-      setImporting(false);
+      setImportingTitle(null);
     }
   }
 
@@ -812,14 +855,8 @@ export default function Home() {
       </header>
 
       <div className="toolbar">
-        <button className="btn btn-primary" onClick={importFromGmail} disabled={importing}>
-          {importing ? (
-            <>
-              <span className="spinner" /> Importando…
-            </>
-          ) : (
-            "⟳ Importar de Gmail"
-          )}
+        <button className="btn btn-primary" onClick={openScanModal}>
+          ⟳ Importar de Gmail
         </button>
         <button className="btn btn-ghost" onClick={addManualSearch}>
           + Nueva búsqueda
@@ -1258,6 +1295,90 @@ export default function Home() {
             )}
           </section>
         </>
+      )}
+
+      {scanOpen && (
+        <div className="modal-overlay" onClick={() => setScanOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <strong>Importar de Gmail</strong>
+              <button className="icon-btn" aria-label="Cerrar" onClick={() => setScanOpen(false)}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body scan-body">
+              <div className="scan-controls">
+                <span className="scan-label">Avisos de los últimos</span>
+                <select
+                  className="sede-select scan-months"
+                  value={scanMonths}
+                  onChange={(e) => setScanMonths(Number(e.target.value))}
+                >
+                  <option value={1}>1 mes</option>
+                  <option value={2}>2 meses</option>
+                  <option value={3}>3 meses</option>
+                  <option value={4}>4 meses</option>
+                </select>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => scanAvisos(scanMonths)}
+                  disabled={scanning}
+                >
+                  {scanning ? (
+                    <>
+                      <span className="spinner" /> Buscando…
+                    </>
+                  ) : (
+                    "Buscar avisos"
+                  )}
+                </button>
+              </div>
+
+              {scanError && <div className="error-box">{scanError}</div>}
+
+              {scanning && !scanResults && (
+                <p className="why" style={{ marginTop: 12 }}>
+                  <span className="spinner" /> Buscando avisos en Gmail…
+                </p>
+              )}
+
+              {scanResults && scanResults.length === 0 && (
+                <p className="empty">No se encontraron avisos de ZonaJobs en ese período.</p>
+              )}
+
+              {scanResults && scanResults.length > 0 && (
+                <div className="aviso-list">
+                  <p className="field-hint" style={{ marginTop: 0 }}>
+                    Elegí de qué aviso querés levantar los CVs:
+                  </p>
+                  {scanResults.map((a) => (
+                    <div className="aviso-row" key={a.title}>
+                      <div className="aviso-info">
+                        <span className="aviso-title">{a.title}</span>
+                        <span className="aviso-count">
+                          {a.count} CV{a.count !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => importAviso(a)}
+                        disabled={importingTitle !== null}
+                      >
+                        {importingTitle === a.title ? (
+                          <>
+                            <span className="spinner" /> Importando…
+                          </>
+                        ) : (
+                          "Importar"
+                        )}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {viewCv && (
