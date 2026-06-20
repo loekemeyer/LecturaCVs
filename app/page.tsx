@@ -252,9 +252,13 @@ export default function Home() {
   const [importingTitle, setImportingTitle] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   // Candidatos recién descartados que siguen en pantalla durante unos segundos
-  // (con "Deshacer" en su fila) antes de irse. Guardamos su calificación previa.
-  const [graceDiscard, setGraceDiscard] = useState<Record<string, Calificacion>>({});
+  // (con "Deshacer" + cuenta regresiva en su fila) antes de irse. Guardamos su
+  // calificación previa y el momento en que desaparecen.
+  const [graceDiscard, setGraceDiscard] = useState<
+    Record<string, { prev: Calificacion; until: number }>
+  >({});
   const graceTimers = useRef<Record<string, number>>({});
+  const GRACE_MS = 8000;
   const [evalProgress, setEvalProgress] = useState<{
     jobId: string;
     done: number;
@@ -349,11 +353,12 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 6000);
   }
 
-  // Descarta a un candidato pero lo deja 10s en la lista con "Deshacer" en su
-  // fila; recién después desaparece. Así un toque sin querer tiene vuelta atrás.
+  // Descarta a un candidato pero lo deja unos segundos en la lista con "Deshacer"
+  // + cuenta regresiva en su fila; recién después desaparece. Así un toque sin
+  // querer tiene vuelta atrás.
   function discardWithGrace(jobId: string, candId: string, prev: Calificacion) {
     patchCandidate(jobId, candId, { calificacion: "descartado" });
-    setGraceDiscard((g) => ({ ...g, [candId]: prev }));
+    setGraceDiscard((g) => ({ ...g, [candId]: { prev, until: Date.now() + GRACE_MS } }));
     if (graceTimers.current[candId]) window.clearTimeout(graceTimers.current[candId]);
     graceTimers.current[candId] = window.setTimeout(() => {
       setGraceDiscard((g) => {
@@ -361,13 +366,13 @@ export default function Home() {
         return rest;
       });
       delete graceTimers.current[candId];
-    }, 10000);
+    }, GRACE_MS);
   }
 
   function undoDiscard(jobId: string, candId: string) {
     if (graceTimers.current[candId]) window.clearTimeout(graceTimers.current[candId]);
     delete graceTimers.current[candId];
-    const prev = graceDiscard[candId] ?? "sincalificar";
+    const prev = graceDiscard[candId]?.prev ?? "sincalificar";
     setGraceDiscard((g) => {
       const { [candId]: _drop, ...rest } = g;
       return rest;
@@ -1454,6 +1459,7 @@ export default function Home() {
                       )
                     }
                     pendingDiscard={graceDiscard[c.id] !== undefined}
+                    discardUntil={graceDiscard[c.id]?.until}
                     onUndoDiscard={() => undoDiscard(activeJob.id, c.id)}
                     onCalif={(k) => {
                       const prev = c.calificacion ?? "sincalificar";
@@ -1618,6 +1624,24 @@ function statusClass(s: Status) {
   return `st-${s}`;
 }
 
+// Cuadrito con la cuenta regresiva (segundos) hasta que el candidato descartado
+// desaparece de la lista.
+function Countdown({ until }: { until: number }) {
+  const calc = () => Math.max(0, Math.ceil((until - Date.now()) / 1000));
+  const [left, setLeft] = useState(calc);
+  useEffect(() => {
+    setLeft(calc());
+    const id = window.setInterval(() => setLeft(calc()), 250);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [until]);
+  return (
+    <span className="cd-box" aria-label={`${left} segundos`}>
+      {left}s
+    </span>
+  );
+}
+
 function CandidateRow({
   cand,
   rank,
@@ -1628,6 +1652,7 @@ function CandidateRow({
   onViewCv,
   onReevaluate,
   pendingDiscard,
+  discardUntil,
   onUndoDiscard,
 }: {
   cand: Candidate;
@@ -1639,6 +1664,7 @@ function CandidateRow({
   onViewCv: (c: { name: string; emailUid?: number; cvText?: string }) => void;
   onReevaluate: () => void;
   pendingDiscard?: boolean;
+  discardUntil?: number;
   onUndoDiscard?: () => void;
 }) {
   const ev = cand.evaluation;
@@ -1672,6 +1698,7 @@ function CandidateRow({
             <button type="button" className="undo-btn" onClick={onUndoDiscard}>
               ↩ Deshacer
             </button>
+            {discardUntil != null && <Countdown until={discardUntil} />}
           </div>
         ) : (
           <div className="cal-dots" role="group" aria-label="Calificación">
