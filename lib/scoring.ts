@@ -82,12 +82,12 @@ const RESULT_SCHEMA = {
     transitMinutes: {
       type: "number",
       description:
-        "Tiempo aproximado de viaje en transporte público (en minutos) desde la dirección del candidato hasta la sede laboral, en un día hábil. -1 si no se puede estimar.",
+        "Tiempo de viaje en transporte público (minutos) hasta la sede, SOLO si el candidato NO tiene movilidad propia/auto. -1 si tiene auto o no se puede estimar.",
     },
     driveMinutes: {
       type: "number",
       description:
-        "Tiempo aproximado de viaje en auto (en minutos) desde la dirección del candidato hasta la sede laboral, en un día hábil. -1 si no se puede estimar.",
+        "Tiempo de viaje en auto (minutos) hasta la sede, SOLO si el CV aclara que el candidato tiene movilidad propia/auto. -1 si no menciona auto o no se puede estimar.",
     },
   },
   required: [
@@ -236,8 +236,8 @@ Datos adicionales solo para filtrar (NO influyen en el puntaje de los criterios;
 - candidateSex: "masculino" o "femenino" si se puede inferir del nombre o los datos; si no, "no especificado".
 - candidateLocation: barrio, localidad o ciudad de residencia del candidato tal como figura en el CV. Vacío si no figura.
 - distanceKm: distancia aproximada en km (en línea recta) desde la ubicación del candidato hasta la sede laboral. Estimala con tu conocimiento de geografía de la zona. -1 si no podés estimar la ubicación.
-- transitMinutes: si el CV indica la dirección/zona del candidato, estimá el tiempo de viaje en TRANSPORTE PÚBLICO (colectivo, tren o subte; usá la combinación más razonable) en minutos hasta la sede laboral en un día hábil. -1 si no podés estimarlo. IMPORTANTE: si el CV aclara que el candidato tiene movilidad propia o auto, devolvé -1 acá (no hace falta el tiempo en transporte público).
-- driveMinutes: ídem pero en AUTO (en minutos). -1 si no podés estimarlo.`;
+- transitMinutes: SOLO si el CV NO menciona que el candidato tenga movilidad propia o auto, estimá el tiempo de viaje en TRANSPORTE PÚBLICO (colectivo, tren o subte; la combinación más razonable) en minutos hasta la sede laboral en un día hábil, según la dirección/zona del candidato. Si el CV aclara que tiene movilidad propia/auto, devolvé -1 acá. -1 también si no podés estimarlo.
+- driveMinutes: SOLO si el CV aclara que el candidato tiene movilidad propia o auto, estimá el tiempo de viaje en AUTO (en minutos) hasta la sede laboral. Si el CV no menciona auto/movilidad propia, devolvé -1 acá. -1 también si no podés estimarlo.`;
 
   const cvBlock: Anthropic.ContentBlockParam = cvText
     ? { type: "text", text: `CV del candidato (texto del correo):\n\n${cvText}` }

@@ -738,6 +738,25 @@ textarea {
     flex: 1;
     width: auto;
   }
+  /* Encabezado del candidato: en celular, estado y badge bajan a una 2ª línea
+     para que no se amontonen ni se corten. */
+  .result-head {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+  }
+  .result-head .result-id {
+    flex: 1 1 110px;
+  }
+  .result-head .chevron {
+    order: 1;
+    margin-left: auto;
+  }
+  .result-head .status-select {
+    order: 2;
+  }
+  .result-head .badge {
+    order: 3;
+  }
 }
 
 /* ---------- ATS: toolbar, pestañas, estados, panel ---------- */
