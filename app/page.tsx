@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Criterion, Evaluation } from "@/lib/types";
 
 type CriterionDraft = { id: string; name: string; weight: number; description: string };
@@ -63,6 +63,7 @@ type Job = {
 };
 
 const STORAGE_KEY = "lecturacvs:ats:v1";
+const TOKEN_KEY = "lecturacvs:token";
 // Cuántos CVs se analizan en paralelo. Subirlo NO cuesta más (el costo es por
 // tokens, no por tiempo): solo termina antes. Con reintento ante rate limit
 // (ver scoreCvText) podemos correr varios a la vez sin que se marquen como error.
@@ -283,6 +284,22 @@ export default function Home() {
   const [openCand, setOpenCand] = useState<Set<string>>(new Set());
   const [califFilter, setCalifFilter] = useState<Calificacion | "todos">("todos");
   const [candSearch, setCandSearch] = useState("");
+  // Acceso por código (login). authReady = ya verificamos; authed = desbloqueado.
+  const [authReady, setAuthReady] = useState(false);
+  const [authed, setAuthed] = useState(false);
+  const [codeChallenge, setCodeChallenge] = useState("");
+  const [codeInput, setCodeInput] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authErr, setAuthErr] = useState("");
+  const [codeSentTo, setCodeSentTo] = useState("");
+  const tokenRef = useRef("");
+  // Gasto: costo estimado por CV (lo informa el server según el modelo) y cuántos
+  // CVs se evaluaron en esta sesión (para el contador en vivo).
+  const [costPerCv, setCostPerCv] = useState(0);
+  const [evaluatedCount, setEvaluatedCount] = useState(0);
+  // Comparador: ids de candidatos seleccionados + modal abierto.
+  const [compareSel, setCompareSel] = useState<Set<string>>(new Set());
+  const [compareOpen, setCompareOpen] = useState(false);
 
   const jobsRef = useRef(jobs);
   useEffect(() => {
@@ -355,6 +372,95 @@ export default function Home() {
   function showToast(msg: string) {
     setToast(msg);
     window.setTimeout(() => setToast(""), 6000);
+  }
+
+  // ---------- acceso por código (login) ----------
+  function authHeaders(): Record<string, string> {
+    return tokenRef.current ? { "x-app-token": tokenRef.current } : {};
+  }
+  // Si una llamada vuelve 401, la sesión venció: volvemos al login.
+  function onAuthFail() {
+    tokenRef.current = "";
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+    } catch {
+      /* ignorar */
+    }
+    setAuthed(false);
+    setCodeChallenge("");
+    setCodeSentTo("");
+  }
+
+  // Chequeo inicial: ¿hace falta código? ¿el token guardado sigue válido?
+  useEffect(() => {
+    let stored = "";
+    try {
+      stored = localStorage.getItem(TOKEN_KEY) || "";
+    } catch {
+      /* ignorar */
+    }
+    tokenRef.current = stored;
+    fetch("/api/auth", { headers: stored ? { "x-app-token": stored } : {} })
+      .then((r) => r.json())
+      .then((d) => {
+        setCostPerCv(Number(d?.costPerCv) || 0);
+        setCodeSentTo(d?.email || "");
+        if (!d?.required || d?.valid) {
+          setAuthed(true);
+        } else {
+          onAuthFail();
+        }
+      })
+      .catch(() => setAuthed(true)) // si el chequeo falla, no bloqueamos la app
+      .finally(() => setAuthReady(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function requestCode() {
+    setAuthBusy(true);
+    setAuthErr("");
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "request" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "No se pudo enviar el código.");
+      setCodeChallenge(data.challenge || "");
+      if (data.sentTo) setCodeSentTo(data.sentTo);
+    } catch (e) {
+      setAuthErr(e instanceof Error ? e.message : "No se pudo enviar el código.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function submitCode() {
+    setAuthBusy(true);
+    setAuthErr("");
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "verify", code: codeInput.trim(), challenge: codeChallenge }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.token) throw new Error(data?.error || "Código inválido o vencido.");
+      tokenRef.current = data.token;
+      try {
+        localStorage.setItem(TOKEN_KEY, data.token);
+      } catch {
+        /* ignorar */
+      }
+      setAuthed(true);
+      setCodeInput("");
+      setCodeChallenge("");
+    } catch (e) {
+      setAuthErr(e instanceof Error ? e.message : "Código inválido o vencido.");
+    } finally {
+      setAuthBusy(false);
+    }
   }
 
   // Cambia la calificación pero deja al candidato unos segundos con "Deshacer" +
@@ -519,13 +625,14 @@ export default function Home() {
     try {
       const res = await fetch("/api/criteria", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           posting,
           title: job.title,
           companyValues: companyValuesRef.current,
         }),
       });
+      if (res.status === 401) onAuthFail();
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
       const suggested: Criterion[] = Array.isArray(data.criteria) ? data.criteria : [];
@@ -594,9 +701,10 @@ export default function Home() {
     try {
       const res = await fetch("/api/inbox", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders() },
         body: JSON.stringify({ action: "scan", months }),
       });
+      if (res.status === 401) onAuthFail();
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
       setScanResults(Array.isArray(data.avisos) ? data.avisos : []);
@@ -615,9 +723,10 @@ export default function Home() {
     try {
       const res = await fetch("/api/inbox", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders() },
         body: JSON.stringify({ action: "import", uids: aviso.uids }),
       });
+      if (res.status === 401) onAuthFail();
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
       const apps: {
@@ -715,7 +824,7 @@ export default function Home() {
     for (let attempt = 0; ; attempt++) {
       let res: Response;
       try {
-        res = await fetch("/api/score", { method: "POST", body: fd });
+        res = await fetch("/api/score", { method: "POST", body: fd, headers: authHeaders() });
       } catch (e) {
         if (attempt < 4) {
           await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
@@ -726,6 +835,10 @@ export default function Home() {
       if (RETRYABLE.has(res.status) && attempt < 4) {
         await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
         continue;
+      }
+      if (res.status === 401) {
+        onAuthFail();
+        throw new Error("Sesión vencida. Volvé a entrar con un código.");
       }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
@@ -793,13 +906,15 @@ export default function Home() {
     }
     // Resguardo de costo: confirmamos antes de tandas grandes para no gastar de
     // golpe por un click accidental.
-    if (
-      targets.length > 30 &&
-      !window.confirm(
-        `Vas a analizar ${targets.length} CVs con la IA. Cada uno tiene un costo. ¿Continuar?`,
-      )
-    ) {
-      return;
+    if (targets.length > 30) {
+      const estimate = costPerCv > 0 ? ` (~US$${(targets.length * costPerCv).toFixed(2)})` : "";
+      if (
+        !window.confirm(
+          `Vas a analizar ${targets.length} CVs con la IA${estimate}. Cada uno tiene un costo. ¿Continuar?`,
+        )
+      ) {
+        return;
+      }
     }
     cancelEvalRef.current = false;
     setPausing(false);
@@ -818,6 +933,7 @@ export default function Home() {
             scoreStatus: "done",
             name: ev.candidateName || c.name,
           });
+          setEvaluatedCount((n) => n + 1);
         } catch (e) {
           patchCandidate(jobId, c.id, {
             scoreStatus: "error",
@@ -877,6 +993,7 @@ export default function Home() {
         scoreStatus: "done",
         name: ev.candidateName || cand.name,
       });
+      setEvaluatedCount((n) => n + 1);
     } catch (e) {
       patchCandidate(jobId, candId, {
         scoreStatus: "error",
@@ -914,7 +1031,8 @@ export default function Home() {
           fd.append("offeredSalary", offeredSalaryText(job));
           fd.append("plantAddress", resolveAddress(job));
           fd.append("companyValues", companyValuesRef.current || "");
-          const res = await fetch("/api/score", { method: "POST", body: fd });
+          const res = await fetch("/api/score", { method: "POST", body: fd, headers: authHeaders() });
+          if (res.status === 401) onAuthFail();
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
           patchCandidate(jobId, id, {
@@ -922,6 +1040,7 @@ export default function Home() {
             scoreStatus: "done",
             name: data.candidateName || file.name,
           });
+          setEvaluatedCount((n) => n + 1);
         } catch (e) {
           patchCandidate(jobId, id, {
             scoreStatus: "error",
@@ -952,9 +1071,10 @@ export default function Home() {
     try {
       const res = await fetch("/api/email", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders() },
         body: JSON.stringify({ uid: c.emailUid }),
       });
+      if (res.status === 401) onAuthFail();
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.html) setViewCv({ name: c.name, html: data.html });
       else
@@ -1012,6 +1132,85 @@ export default function Home() {
   const hiddenActive = byCalif.length - shownActive.length;
   const califCount = (v: Calificacion) => rankedActive.filter((c) => califOf(c) === v).length;
 
+  if (!authReady) {
+    return (
+      <main className="page">
+        <div className="auth-screen">
+          <span className="spinner" /> Cargando…
+        </div>
+      </main>
+    );
+  }
+
+  if (!authed) {
+    return (
+      <main className="page">
+        <div className="auth-screen">
+          <div className="auth-card">
+            <span className="logo auth-logo">CV</span>
+            <h1 className="auth-title">LecturaCVs</h1>
+            <p className="auth-sub">
+              Acceso protegido. Te mandamos un código de 6 dígitos por correo para entrar.
+            </p>
+            {!codeChallenge ? (
+              <>
+                <button
+                  className="btn btn-primary btn-block"
+                  onClick={requestCode}
+                  disabled={authBusy}
+                >
+                  {authBusy ? (
+                    <>
+                      <span className="spinner" /> Enviando…
+                    </>
+                  ) : (
+                    "✉ Enviarme el código"
+                  )}
+                </button>
+                {codeSentTo && <p className="auth-hint">El código llega a {codeSentTo}</p>}
+              </>
+            ) : (
+              <>
+                <p className="auth-hint">
+                  Código enviado a {codeSentTo || "tu correo"}. Revisá tu casilla e ingresalo:
+                </p>
+                <input
+                  className="auth-code"
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="000000"
+                  value={codeInput}
+                  onChange={(e) => setCodeInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && codeInput.length === 6) submitCode();
+                  }}
+                  autoFocus
+                />
+                <button
+                  className="btn btn-primary btn-block"
+                  onClick={submitCode}
+                  disabled={authBusy || codeInput.length !== 6}
+                >
+                  {authBusy ? (
+                    <>
+                      <span className="spinner" /> Verificando…
+                    </>
+                  ) : (
+                    "Entrar"
+                  )}
+                </button>
+                <button className="linklike auth-resend" onClick={requestCode} disabled={authBusy}>
+                  Reenviar código
+                </button>
+              </>
+            )}
+            {authErr && <p className="auth-err">{authErr}</p>}
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="page">
       <header className="appbar">
@@ -1022,14 +1221,25 @@ export default function Home() {
             <span className="brand-tag">Pre-selección de candidatos con IA</span>
           </div>
         </div>
-        <button
-          className={`profile-btn${activeTab === "perfil" ? " active" : ""}`}
-          onClick={toggleProfile}
-          title="Mi perfil"
-        >
-          <span className="profile-btn-icon">👤</span>
-          <span className="profile-btn-text">Mi perfil</span>
-        </button>
+        <div className="appbar-right">
+          {evaluatedCount > 0 && (
+            <span
+              className="spend-badge"
+              title="Gasto estimado de IA en esta sesión (aproximado)"
+            >
+              💵 {evaluatedCount} CV{evaluatedCount !== 1 ? "s" : ""}
+              {costPerCv > 0 ? ` · ~US$${(evaluatedCount * costPerCv).toFixed(2)}` : ""}
+            </span>
+          )}
+          <button
+            className={`profile-btn${activeTab === "perfil" ? " active" : ""}`}
+            onClick={toggleProfile}
+            title="Mi perfil"
+          >
+            <span className="profile-btn-icon">👤</span>
+            <span className="profile-btn-text">Mi perfil</span>
+          </button>
+        </div>
       </header>
 
       {toast && <div className="toast">{toast}</div>}
@@ -1533,12 +1743,36 @@ export default function Home() {
               <div style={{ marginTop: 12 }}>
                 <div className="list-actions">
                   <span className="list-actions-count">{shownActive.length} en la lista</span>
+                  {compareSel.size >= 2 && (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => setCompareOpen(true)}
+                      title="Ver los seleccionados lado a lado"
+                    >
+                      ⚖ Comparar ({compareSel.size})
+                    </button>
+                  )}
+                  {compareSel.size > 0 && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setCompareSel(new Set())}
+                    >
+                      Limpiar selección
+                    </button>
+                  )}
                   <button
                     className="btn btn-ghost btn-sm"
                     onClick={() => exportCandidatesCsv(activeJob.title, shownActive)}
                     title="Descargar esta lista para abrir en Excel"
                   >
-                    ⬇ Exportar a Excel
+                    ⬇ Excel
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => exportCandidatesPdf(activeJob.title, shownActive)}
+                    title="Generar un PDF para imprimir o guardar"
+                  >
+                    ⬇ PDF
                   </button>
                 </div>
                 {shownActive.map((c, i) => (
@@ -1573,6 +1807,15 @@ export default function Home() {
                       (x) => x.jobId !== activeJob.id,
                     )}
                     onOpenJob={(id) => setActiveTab(id)}
+                    selected={compareSel.has(c.id)}
+                    onSelect={() =>
+                      setCompareSel((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(c.id)) next.delete(c.id);
+                        else next.add(c.id);
+                        return next;
+                      })
+                    }
                   />
                 ))}
               </div>
@@ -1716,6 +1959,113 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {compareOpen &&
+        (() => {
+          const items = (activeJob?.candidates ?? []).filter((c) => compareSel.has(c.id));
+          const stLabel = (s: Status) => STATUSES.find((x) => x.value === s)?.label ?? s;
+          const cols = `150px repeat(${items.length}, minmax(150px, 1fr))`;
+          const Row = ({ label, render }: { label: string; render: (c: Candidate) => ReactNode }) => (
+            <>
+              <div className="cmp-rowlabel">{label}</div>
+              {items.map((c) => (
+                <div className="cmp-cell" key={c.id}>
+                  {render(c)}
+                </div>
+              ))}
+            </>
+          );
+          return (
+            <div className="modal-overlay" onClick={() => setCompareOpen(false)}>
+              <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-head">
+                  <strong>Comparar candidatos ({items.length})</strong>
+                  <button
+                    className="icon-btn"
+                    aria-label="Cerrar"
+                    onClick={() => setCompareOpen(false)}
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="modal-body cmp-body">
+                  <div className="cmp-grid" style={{ gridTemplateColumns: cols }}>
+                    <div className="cmp-rowlabel" />
+                    {items.map((c) => (
+                      <div className="cmp-name" key={c.id}>
+                        {c.name}
+                      </div>
+                    ))}
+                    <Row
+                      label="Puntaje"
+                      render={(c) => (
+                        <span className="cmp-score">
+                          {c.evaluation ? `${toTen(c.evaluation.overallScore)}/10` : "—"}
+                        </span>
+                      )}
+                    />
+                    <Row
+                      label="Calificación"
+                      render={(c) => (
+                        <>
+                          <span className={`cal-dot cal-${califOf(c)}`} /> {califLabel(califOf(c))}
+                        </>
+                      )}
+                    />
+                    <Row label="Estado" render={(c) => stLabel(c.status)} />
+                    <Row label="Edad" render={(c) => (c.evaluation?.age != null ? `${c.evaluation.age} años` : "—")} />
+                    <Row
+                      label="Sexo"
+                      render={(c) =>
+                        c.evaluation?.sex && c.evaluation.sex !== "no especificado"
+                          ? c.evaluation.sex
+                          : "—"
+                      }
+                    />
+                    <Row label="Ubicación" render={(c) => c.evaluation?.location || "—"} />
+                    <Row
+                      label="Distancia"
+                      render={(c) =>
+                        c.evaluation?.distanceKm != null ? `${c.evaluation.distanceKm} km` : "—"
+                      }
+                    />
+                    <Row label="Sueldo pretendido" render={(c) => c.expectedSalary || "—"} />
+                    <Row
+                      label="Fortalezas"
+                      render={(c) =>
+                        c.evaluation?.strengths?.length ? (
+                          <ul className="cmp-list">
+                            {c.evaluation.strengths.map((s, k) => (
+                              <li key={k}>{s}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          "—"
+                        )
+                      }
+                    />
+                    <Row
+                      label="Dudas"
+                      render={(c) =>
+                        c.evaluation?.concerns?.length ? (
+                          <ul className="cmp-list">
+                            {c.evaluation.concerns.map((s, k) => (
+                              <li key={k}>{s}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          "—"
+                        )
+                      }
+                    />
+                    <Row label="Resumen" render={(c) => c.evaluation?.summary || "—"} />
+                    <Row label="Notas" render={(c) => c.notes || "—"} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
     </main>
   );
 }
@@ -1759,6 +2109,8 @@ function CandidateRow({
   jobTitle,
   otherJobs,
   onOpenJob,
+  selected,
+  onSelect,
 }: {
   cand: Candidate;
   rank: number;
@@ -1776,6 +2128,8 @@ function CandidateRow({
   jobTitle?: string;
   otherJobs?: { jobId: string; title: string }[];
   onOpenJob?: (jobId: string) => void;
+  selected?: boolean;
+  onSelect?: () => void;
 }) {
   const ev = cand.evaluation;
   const cur = califOf(cand);
@@ -1800,6 +2154,15 @@ function CandidateRow({
   return (
     <div className={`result${open ? " open" : ""}${pendingUndo ? " pending-undo" : ""}`}>
       <div className="result-head">
+        <input
+          type="checkbox"
+          className="cmp-check"
+          checked={!!selected}
+          onChange={onSelect}
+          onClick={(e) => e.stopPropagation()}
+          title="Seleccionar para comparar"
+          aria-label="Seleccionar para comparar"
+        />
         <span className="rank">#{rank}</span>
         {ev ? (
           <div className={`score-chip ${scoreClass(ev.overallScore)}`} onClick={onToggle}>
@@ -2079,6 +2442,66 @@ function exportCandidatesCsv(jobTitle: string, list: Candidate[]) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+// Genera un PDF del ranking abriendo una vista limpia para imprimir/guardar.
+// (Usa la impresión del navegador → "Guardar como PDF": sin librerías extra.)
+function exportCandidatesPdf(jobTitle: string, list: Candidate[]) {
+  const statusLabel = (s: Status) => STATUSES.find((x) => x.value === s)?.label ?? s;
+  const esc = (v: unknown) =>
+    String(v ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  const rows = list
+    .map((c, i) => {
+      const ev = c.evaluation;
+      return `<tr>
+        <td>${i + 1}</td>
+        <td>${esc(c.name)}</td>
+        <td class="num">${ev ? toTen(ev.overallScore) : "—"}</td>
+        <td>${esc(califLabel(califOf(c)))}</td>
+        <td>${esc(statusLabel(c.status))}</td>
+        <td class="num">${ev?.age ?? ""}</td>
+        <td class="num">${ev?.distanceKm != null ? ev.distanceKm + " km" : ""}</td>
+        <td>${esc(c.expectedSalary ?? "")}</td>
+        <td>${esc(c.notes ?? "")}</td>
+      </tr>`;
+    })
+    .join("");
+  const fecha = new Date().toLocaleDateString("es-AR");
+  const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">
+    <title>${esc(jobTitle)} — candidatos</title>
+    <style>
+      body{font:13px/1.4 system-ui,Arial,sans-serif;color:#111;margin:24px}
+      h1{font-size:18px;margin:0 0 2px}
+      .sub{color:#666;font-size:12px;margin:0 0 16px}
+      table{border-collapse:collapse;width:100%}
+      th,td{border:1px solid #ddd;padding:6px 8px;text-align:left;vertical-align:top}
+      th{background:#f3f4f6;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+      td.num{text-align:center;white-space:nowrap}
+      tr:nth-child(even) td{background:#fafafa}
+      @media print{body{margin:0}}
+    </style></head><body>
+    <h1>${esc(jobTitle)}</h1>
+    <p class="sub">${list.length} candidato${list.length !== 1 ? "s" : ""} · ${fecha} · LecturaCVs</p>
+    <table>
+      <thead><tr>
+        <th>#</th><th>Nombre</th><th>Puntaje</th><th>Calificación</th><th>Estado</th>
+        <th>Edad</th><th>Distancia</th><th>Sueldo pret.</th><th>Notas</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <script>window.onload=function(){window.print();}</script>
+  </body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) {
+    alert("Permití las ventanas emergentes para generar el PDF.");
+    return;
+  }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
 }
 
 // Sugerencias de dirección con OpenStreetMap (Nominatim): gratis y sin API key.

@@ -1,5 +1,6 @@
 import { scanZonaJobsAvisos, fetchZonaJobsEmailsByUids } from "@/lib/gmail";
 import { parseZonaJobsApplication } from "@/lib/zonajobs";
+import { isAuthorized, unauthorized } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -12,6 +13,7 @@ function bad(error: string, status = 400) {
 // - { action: "scan", months }  -> lista de avisos con su cantidad de CVs (liviano).
 // - { action: "import", uids }   -> importa los CVs de los mails indicados (un aviso).
 export async function POST(req: Request) {
+  if (!isAuthorized(req)) return unauthorized();
   if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
     return bad(
       "El servidor no tiene configurada la casilla de correo (GMAIL_USER / GMAIL_APP_PASSWORD).",

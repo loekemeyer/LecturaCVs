@@ -1,10 +1,12 @@
 import { fetchEmailHtml } from "@/lib/gmail";
+import { isAuthorized, unauthorized } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 // Devuelve el HTML original del mail (con la foto) para "Ver CV completo".
 export async function POST(req: Request) {
+  if (!isAuthorized(req)) return unauthorized();
   if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
     return Response.json({ error: "Correo no configurado en el servidor." }, { status: 500 });
   }

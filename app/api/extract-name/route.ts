@@ -1,12 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { extractCandidateName } from "@/lib/scoring";
 import { detectMediaType, MAX_UPLOAD_BYTES } from "@/lib/upload";
+import { isAuthorized, unauthorized } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 // Lee el CV (PDF o imagen) y devuelve solo el nombre del postulante.
 export async function POST(req: Request) {
+  if (!isAuthorized(req)) return unauthorized();
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json({ error: "Falta ANTHROPIC_API_KEY." }, { status: 500 });
   }

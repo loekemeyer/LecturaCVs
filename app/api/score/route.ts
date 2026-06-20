@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { scoreCv, type ScoreCvInput } from "@/lib/scoring";
 import { detectMediaType, MAX_UPLOAD_BYTES } from "@/lib/upload";
+import { isAuthorized, unauthorized } from "@/lib/auth";
+import { extractPdfText } from "@/lib/pdf";
 import type { Criterion } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -12,6 +14,7 @@ function bad(error: string, status = 400) {
 }
 
 export async function POST(req: Request) {
+  if (!isAuthorized(req)) return unauthorized();
   if (!process.env.ANTHROPIC_API_KEY) {
     return bad(
       "El servidor no tiene configurada ANTHROPIC_API_KEY. Agregala en .env.local (ver README).",
@@ -52,8 +55,19 @@ export async function POST(req: Request) {
     if (!mediaType) return bad("El archivo debe ser un PDF o una imagen (PNG, JPG, WEBP).");
     if (file.size === 0) return bad("El archivo está vacío.");
     if (file.size > MAX_UPLOAD_BYTES) return bad("El archivo supera el límite de 15 MB.", 413);
-    const fileBase64 = Buffer.from(await file.arrayBuffer()).toString("base64");
-    source = { fileBase64, mediaType, fileName: file.name };
+    const buf = Buffer.from(await file.arrayBuffer());
+    // PDF con texto real: lo extraemos y lo mandamos como texto (más barato y
+    // preciso). Si es un PDF escaneado (sin texto), lo mandamos como documento.
+    if (mediaType === "application/pdf") {
+      const text = await extractPdfText(buf);
+      if (text.length > 120) {
+        source = { cvText: text, fileName: file.name };
+      } else {
+        source = { fileBase64: buf.toString("base64"), mediaType, fileName: file.name };
+      }
+    } else {
+      source = { fileBase64: buf.toString("base64"), mediaType, fileName: file.name };
+    }
   } else if (cvText) {
     source = { cvText, fileName: (form.get("fileName") as string | null) || "CV" };
   } else {

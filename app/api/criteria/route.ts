@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { suggestCriteria } from "@/lib/criteria";
+import { isAuthorized, unauthorized } from "@/lib/auth";
 
 export const runtime = "nodejs";
 // Analizar el aviso con la IA puede tardar; damos margen.
@@ -10,6 +11,7 @@ function bad(error: string, status = 400) {
 }
 
 export async function POST(req: Request) {
+  if (!isAuthorized(req)) return unauthorized();
   if (!process.env.ANTHROPIC_API_KEY) {
     return bad(
       "El servidor no tiene configurada ANTHROPIC_API_KEY. Agregala en .env.local (ver README).",
