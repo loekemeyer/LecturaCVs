@@ -221,6 +221,8 @@ export default function Home() {
   // cada candidato. Es un ref (no estado) para que vean el valor más reciente sin
   // depender de re-renders.
   const cancelEvalRef = useRef(false);
+  // Para avisar una sola vez si falla el guardado local (memoria del navegador).
+  const saveWarnedRef = useRef(false);
 
   // Cargar
   useEffect(() => {
@@ -244,8 +246,16 @@ export default function Home() {
     if (!loaded) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ jobs, activeTab }));
+      saveWarnedRef.current = false;
     } catch {
-      /* ignorar */
+      // Suele ser cuota llena (muchos CVs con texto + evaluaciones). Avisamos una
+      // sola vez para que no se pierdan datos sin que el usuario se entere.
+      if (!saveWarnedRef.current) {
+        saveWarnedRef.current = true;
+        showToast(
+          "No se pudo guardar en el navegador (puede estar lleno de tantos CVs). Para no perder datos, conviene evaluar en tandas más chicas.",
+        );
+      }
     }
   }, [jobs, activeTab, loaded]);
 
@@ -455,11 +465,22 @@ export default function Home() {
     fd.append("jobContext", job.jobContext || job.title);
     fd.append("offeredSalary", job.offeredSalary);
     fd.append("expectedSalary", cand.expectedSalary);
-    // Reintentos ante rate limit (429) con espera creciente: así podemos correr
-    // más CVs en paralelo sin que un pico de límite los marque como error.
+    // Reintentos ante errores transitorios (rate limit 429, sobrecarga 5xx y
+    // cortes de red) con espera creciente: corriendo varios CVs en paralelo, un
+    // pico momentáneo no debería marcar el CV como error.
+    const RETRYABLE = new Set([429, 502, 503, 529]);
     for (let attempt = 0; ; attempt++) {
-      const res = await fetch("/api/score", { method: "POST", body: fd });
-      if (res.status === 429 && attempt < 4) {
+      let res: Response;
+      try {
+        res = await fetch("/api/score", { method: "POST", body: fd });
+      } catch (e) {
+        if (attempt < 4) {
+          await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+          continue;
+        }
+        throw e instanceof Error ? e : new Error("Error de red al evaluar el CV.");
+      }
+      if (RETRYABLE.has(res.status) && attempt < 4) {
         await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
         continue;
       }
@@ -499,6 +520,10 @@ export default function Home() {
     opts: { reevaluateAll?: boolean; limit?: number } = {},
   ) {
     const { reevaluateAll = false, limit } = opts;
+    if (evalProgress) {
+      showToast("Ya hay un análisis en curso. Esperá a que termine o pausalo.");
+      return;
+    }
     const job = jobsRef.current.find((j) => j.id === jobId);
     if (!job) return;
     setReevalFor(null);
@@ -516,6 +541,16 @@ export default function Home() {
           ? "No hay candidatos para evaluar en esta búsqueda."
           : "Todos los candidatos con CV ya están evaluados.",
       );
+      return;
+    }
+    // Resguardo de costo: confirmamos antes de tandas grandes para no gastar de
+    // golpe por un click accidental.
+    if (
+      targets.length > 30 &&
+      !window.confirm(
+        `Vas a analizar ${targets.length} CVs con la IA. Cada uno tiene un costo. ¿Continuar?`,
+      )
+    ) {
       return;
     }
     cancelEvalRef.current = false;
@@ -559,6 +594,9 @@ export default function Home() {
           ? `Análisis pausado. Quedan ${left} sin evaluar; tocá «Evaluar candidatos» para retomar.`
           : "Análisis pausado.",
       );
+    } else {
+      const n = targets.length;
+      showToast(`Análisis terminado: ${n} CV${n > 1 ? "s" : ""} procesado${n > 1 ? "s" : ""}.`);
     }
   }
 
