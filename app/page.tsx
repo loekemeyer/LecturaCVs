@@ -110,8 +110,14 @@ const CALIFICACIONES: { value: Calificacion; label: string; dot: string }[] = [
   { value: "favorito", label: "Favorito", dot: "🟢" },
   { value: "descartado", label: "Descartado", dot: "🔴" },
 ];
-// Orden de los círculos para marcar rápido: naranja, rojo, verde claro, verde fuerte.
-const CALIF_PICKER: Calificacion[] = ["sincalificar", "descartado", "preseleccionado", "favorito"];
+// Botones para marcar rápido la calificación: naranja, rojo, verde claro, verde
+// fuerte. Llevan nombre para que se entienda y no se elija uno sin querer.
+const CALIF_PICKER: { value: Calificacion; short: string }[] = [
+  { value: "sincalificar", short: "Sin calif." },
+  { value: "descartado", short: "Descartar" },
+  { value: "preseleccionado", short: "Preselec." },
+  { value: "favorito", short: "Favorito" },
+];
 const califOf = (c: Candidate): Calificacion => c.calificacion ?? "sincalificar";
 const califLabel = (v: Calificacion) =>
   CALIFICACIONES.find((x) => x.value === v)?.label ?? "Sin calificar";
@@ -245,6 +251,8 @@ export default function Home() {
   const [scanError, setScanError] = useState("");
   const [importingTitle, setImportingTitle] = useState<string | null>(null);
   const [toast, setToast] = useState("");
+  const [undo, setUndo] = useState<{ msg: string; run: () => void } | null>(null);
+  const undoTimer = useRef<number | null>(null);
   const [evalProgress, setEvalProgress] = useState<{
     jobId: string;
     done: number;
@@ -337,6 +345,14 @@ export default function Home() {
   function showToast(msg: string) {
     setToast(msg);
     window.setTimeout(() => setToast(""), 6000);
+  }
+
+  // Aviso con "Deshacer" para acciones que sacan al candidato de la pantalla
+  // (descartar). Así un toque sin querer no hace que desaparezca sin vuelta atrás.
+  function showUndo(msg: string, run: () => void) {
+    if (undoTimer.current) window.clearTimeout(undoTimer.current);
+    setUndo({ msg, run });
+    undoTimer.current = window.setTimeout(() => setUndo(null), 10000);
   }
 
   // Recordamos la última pestaña que no es el perfil (para el botón "Mi perfil").
@@ -914,6 +930,22 @@ export default function Home() {
 
       {toast && <div className="toast">{toast}</div>}
 
+      {undo && (
+        <div className="toast toast-undo">
+          <span>{undo.msg}</span>
+          <button
+            className="undo-btn"
+            onClick={() => {
+              if (undoTimer.current) window.clearTimeout(undoTimer.current);
+              undo.run();
+              setUndo(null);
+            }}
+          >
+            ↩ Deshacer
+          </button>
+        </div>
+      )}
+
       {/* Entrada (nada elegido): botón grande. No se muestran los avisos todavía. */}
       {activeTab === "" && (
         <div className="entry-cta">
@@ -1412,7 +1444,16 @@ export default function Home() {
                         s === "descartado" ? { status: s, calificacion: "descartado" } : { status: s },
                       )
                     }
-                    onCalif={(k) => patchCandidate(activeJob.id, c.id, { calificacion: k })}
+                    onCalif={(k) => {
+                      const prev = c.calificacion ?? "sincalificar";
+                      patchCandidate(activeJob.id, c.id, { calificacion: k });
+                      // Descartar lo saca de la pantalla: ofrecemos deshacer.
+                      if (k === "descartado" && prev !== "descartado") {
+                        showUndo(`Descartaste a ${c.name}.`, () =>
+                          patchCandidate(activeJob.id, c.id, { calificacion: prev }),
+                        );
+                      }
+                    }}
                     onViewCv={openCv}
                     onReevaluate={() => reevaluateOne(activeJob.id, c.id)}
                   />
@@ -1611,7 +1652,7 @@ function CandidateRow({
           </div>
         </div>
         <div className="cal-dots" role="group" aria-label="Calificación">
-          {CALIF_PICKER.map((v) => {
+          {CALIF_PICKER.map(({ value: v, short }) => {
             const active = califOf(cand) === v;
             return (
               <button
@@ -1620,9 +1661,11 @@ function CandidateRow({
                 className={`cal-pick cal-${v}${active ? " active" : ""}`}
                 onClick={() => onCalif(v)}
                 title={califLabel(v)}
-                aria-label={califLabel(v)}
                 aria-pressed={active}
-              />
+              >
+                <span className="cal-pick-dot" />
+                <span className="cal-pick-txt">{short}</span>
+              </button>
             );
           })}
         </div>
