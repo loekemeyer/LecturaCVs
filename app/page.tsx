@@ -1438,7 +1438,14 @@ export default function Home() {
                 <select
                   className="sede-select scan-months"
                   value={scanMonths}
-                  onChange={(e) => setScanMonths(Number(e.target.value))}
+                  disabled={scanning}
+                  onChange={(e) => {
+                    const m = Number(e.target.value);
+                    setScanMonths(m);
+                    // Al cambiar el período, re-buscamos solo si ya había una
+                    // lista cargada (para que se actualice sin tocar el botón).
+                    if (scanResults) void scanAvisos(m);
+                  }}
                 >
                   <option value={3}>3 meses</option>
                   <option value={6}>6 meses</option>
