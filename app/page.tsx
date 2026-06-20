@@ -262,7 +262,12 @@ export default function Home() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed.jobs)) {
-          setJobs(parsed.jobs);
+          // Limpiamos restos de "Nueva búsqueda" vacías (de cuando existía el
+          // botón manual): solo las que no tienen ningún candidato.
+          const cleaned = (parsed.jobs as Job[]).filter(
+            (j) => !(j.title === "Nueva búsqueda" && (j.candidates?.length ?? 0) === 0),
+          );
+          setJobs(cleaned);
           // Al entrar, arrancamos sin ninguna búsqueda abierta (pantalla limpia).
           setActiveTab("");
         }
