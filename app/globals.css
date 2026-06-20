@@ -390,6 +390,43 @@ textarea {
   flex-wrap: wrap;
   margin-top: 14px;
 }
+/* sueldo: fijo / rango */
+.salary-mode {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.salary-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.salary-opt.on {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+.salary-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 360px;
+}
+.salary-range input {
+  flex: 1;
+  min-width: 0;
+}
+.salary-dash {
+  color: var(--text-soft);
+  font-size: 13px;
+}
 .result-actions {
   display: flex;
   gap: 8px;

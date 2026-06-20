@@ -40,6 +40,10 @@ type Job = {
   firstDate: string;
   criteria: CriterionDraft[];
   offeredSalary: string;
+  /** Tope superior del rango de sueldo ofrecido (si es rango). */
+  offeredSalaryMax?: string;
+  /** Si el sueldo ofrecido es un rango (desde/hasta) en vez de un valor fijo. */
+  salaryRange?: boolean;
   jobContext: string;
   /** Texto del aviso de la búsqueda (pegado por el usuario). La IA lo usa para sugerir criterios. */
   posting?: string;
@@ -192,6 +196,17 @@ async function prepareUpload(file: File): Promise<{ blob: Blob; filename: string
   } catch {
     return { blob: file, filename: file.name };
   }
+}
+// Texto del sueldo ofrecido para mandar a la IA: valor fijo o rango "X a Y".
+function offeredSalaryText(job: Job): string {
+  const min = (job.offeredSalary || "").trim();
+  const max = (job.offeredSalaryMax || "").trim();
+  if (job.salaryRange && (min || max)) {
+    if (min && max) return `${min} a ${max}`;
+    if (min) return `desde ${min}`;
+    return `hasta ${max}`;
+  }
+  return min;
 }
 function criteriaPayload(job: Job): Criterion[] {
   return job.criteria
@@ -575,7 +590,7 @@ export default function Home() {
     fd.append("fileName", cand.name);
     fd.append("criteria", JSON.stringify(criteriaPayload(job)));
     fd.append("jobContext", job.jobContext || job.title);
-    fd.append("offeredSalary", job.offeredSalary);
+    fd.append("offeredSalary", offeredSalaryText(job));
     fd.append("expectedSalary", cand.expectedSalary);
     fd.append("plantAddress", resolveAddress(job));
     fd.append("companyValues", companyValuesRef.current || "");
@@ -782,7 +797,7 @@ export default function Home() {
           fd.append("file", blob, filename);
           fd.append("criteria", JSON.stringify(criteriaPayload(job)));
           fd.append("jobContext", job.jobContext || job.title);
-          fd.append("offeredSalary", job.offeredSalary);
+          fd.append("offeredSalary", offeredSalaryText(job));
           fd.append("plantAddress", resolveAddress(job));
           fd.append("companyValues", companyValuesRef.current || "");
           const res = await fetch("/api/score", { method: "POST", body: fd });
@@ -963,14 +978,58 @@ export default function Home() {
             <label className="field" style={{ marginTop: 12 }}>
               Sueldo ofrecido por la empresa
             </label>
-            <input
-              type="text"
-              inputMode="numeric"
-              placeholder="Ej: 1.200.000"
-              value={activeJob.offeredSalary}
-              onChange={(e) => patchJob(activeJob.id, { offeredSalary: formatMiles(e.target.value) })}
-              style={{ maxWidth: 240 }}
-            />
+            <div className="salary-mode">
+              <label className={`salary-opt${!activeJob.salaryRange ? " on" : ""}`}>
+                <input
+                  type="radio"
+                  checked={!activeJob.salaryRange}
+                  onChange={() => patchJob(activeJob.id, { salaryRange: false, offeredSalaryMax: "" })}
+                />
+                Fijo
+              </label>
+              <label className={`salary-opt${activeJob.salaryRange ? " on" : ""}`}>
+                <input
+                  type="radio"
+                  checked={!!activeJob.salaryRange}
+                  onChange={() => patchJob(activeJob.id, { salaryRange: true })}
+                />
+                Rango
+              </label>
+            </div>
+            {activeJob.salaryRange ? (
+              <div className="salary-range">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="Desde"
+                  value={activeJob.offeredSalary}
+                  onChange={(e) =>
+                    patchJob(activeJob.id, { offeredSalary: formatMiles(e.target.value) })
+                  }
+                />
+                <span className="salary-dash">a</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="Hasta"
+                  value={activeJob.offeredSalaryMax ?? ""}
+                  onChange={(e) =>
+                    patchJob(activeJob.id, { offeredSalaryMax: formatMiles(e.target.value) })
+                  }
+                />
+              </div>
+            ) : (
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="Ej: 1.200.000"
+                value={activeJob.offeredSalary}
+                onChange={(e) =>
+                  patchJob(activeJob.id, { offeredSalary: formatMiles(e.target.value) })
+                }
+                style={{ maxWidth: 240 }}
+              />
+            )}
 
             <label className="field" style={{ marginTop: 12 }}>
               Sede laboral de esta búsqueda
