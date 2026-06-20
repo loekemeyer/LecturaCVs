@@ -790,7 +790,9 @@ select.status-select.cal-descartado {
   color: var(--primary-dark);
 }
 .eval-scope-input {
-  width: 110px;
+  width: 100px;
+  flex: 0 0 100px;
+  max-width: 100px;
   font: inherit;
   font-size: 14px;
   border: 1px solid var(--border);
