@@ -3,12 +3,53 @@
 
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
+import type { Readable } from "node:stream";
 
 export interface RawApplicationEmail {
   uid: number;
   subject: string;
   text: string;
   date: string;
+}
+
+// Nodo de la estructura MIME del mail (lo justo para encontrar la parte de texto).
+type BodyNode = {
+  type?: string;
+  part?: string;
+  parameters?: { charset?: string };
+  childNodes?: BodyNode[];
+};
+
+// Busca la parte de texto del mail (preferimos HTML) sin tocar las imágenes.
+// Devuelve el identificador de parte IMAP y su charset.
+function pickTextPart(node?: BodyNode): { part: string; charset?: string } | null {
+  let html: { part: string; charset?: string } | null = null;
+  let plain: { part: string; charset?: string } | null = null;
+  const walk = (n?: BodyNode) => {
+    if (!n) return;
+    const type = (n.type || "").toLowerCase();
+    if (type === "text/html" && !html) html = { part: n.part || "1", charset: n.parameters?.charset };
+    else if (type === "text/plain" && !plain)
+      plain = { part: n.part || "1", charset: n.parameters?.charset };
+    (n.childNodes || []).forEach(walk);
+  };
+  walk(node);
+  return html || plain;
+}
+
+async function streamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
+  }
+  return Buffer.concat(chunks);
+}
+
+function decodeBuffer(buf: Buffer, charset?: string): string {
+  const cs = (charset || "utf-8").toLowerCase();
+  // Buffer soporta latin1; mapeamos los charsets viejos más comunes ahí.
+  if (cs.includes("8859") || cs.includes("1252") || cs === "latin1") return buf.toString("latin1");
+  return buf.toString("utf8");
 }
 
 // Los mails de ZonaJobs vienen en HTML; si no hay texto plano, lo derivamos del HTML
@@ -57,25 +98,56 @@ export async function fetchZonaJobsEmails(): Promise<RawApplicationEmail[]> {
     // límite de cuántos CVs analizar se aplica después, en la app.
     const uids = await client.search({ from: ZONAJOBS_SENDER }, { uid: true });
     if (uids && uids.length) {
+      // 1ª pasada (liviana): solo metadatos + estructura, SIN bajar cuerpos ni fotos.
+      const metas: {
+        uid: number;
+        subject: string;
+        date: string;
+        textPart: { part: string; charset?: string } | null;
+      }[] = [];
       for await (const msg of client.fetch(
         uids,
-        { source: true, envelope: true },
+        { bodyStructure: true, envelope: true },
         { uid: true },
       )) {
-        if (!msg.source) continue;
+        metas.push({
+          uid: msg.uid,
+          subject: msg.envelope?.subject || "",
+          date: (msg.envelope?.date || new Date()).toISOString(),
+          textPart: pickTextPart(msg.bodyStructure as BodyNode | undefined),
+        });
+      }
+
+      // 2ª pasada: bajamos SOLO la parte de texto de cada mail (la foto del
+      // candidato queda en el servidor; se baja recién al abrir "Ver CV completo").
+      for (const m of metas) {
+        let bodyText = "";
         try {
-          const parsed = await simpleParser(msg.source as Buffer);
-          const plain = (parsed.text || "").trim();
-          const bodyText = plain.length > 20 ? plain : htmlToText(parsed.html || "");
-          out.push({
-            uid: msg.uid,
-            subject: parsed.subject || msg.envelope?.subject || "",
-            text: bodyText,
-            date: (parsed.date || msg.envelope?.date || new Date()).toISOString(),
-          });
+          if (m.textPart) {
+            const dl = await client.download(String(m.uid), m.textPart.part, { uid: true });
+            if (dl?.content) {
+              const raw = decodeBuffer(await streamToBuffer(dl.content), m.textPart.charset);
+              bodyText = /<[a-z!/]/i.test(raw) ? htmlToText(raw) : raw.trim();
+            }
+          }
         } catch {
-          /* saltar mail que no se pudo parsear */
+          bodyText = "";
         }
+        // Respaldo: si no pudimos sacar el texto, bajamos el mail completo y lo
+        // parseamos como antes (solo para ese mail puntual).
+        if (!bodyText) {
+          try {
+            const dl = await client.download(String(m.uid), undefined, { uid: true });
+            if (dl?.content) {
+              const parsed = await simpleParser(await streamToBuffer(dl.content));
+              const plain = (parsed.text || "").trim();
+              bodyText = plain.length > 20 ? plain : htmlToText(parsed.html || "");
+            }
+          } catch {
+            /* saltar mail que no se pudo leer */
+          }
+        }
+        out.push({ uid: m.uid, subject: m.subject, text: bodyText, date: m.date });
       }
     }
   } finally {
