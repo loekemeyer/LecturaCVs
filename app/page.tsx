@@ -20,6 +20,8 @@ type Candidate = {
   status: Status;
   /** Calificación por color (triage). Si falta, se trata como "sincalificar". */
   calificacion?: Calificacion;
+  /** Notas libres del reclutador (entrevista, llamado, etc.). */
+  notes?: string;
   scoreStatus: ScoreStatus;
   error?: string;
   evaluation?: Evaluation;
@@ -280,6 +282,7 @@ export default function Home() {
   } | null>(null);
   const [openCand, setOpenCand] = useState<Set<string>>(new Set());
   const [califFilter, setCalifFilter] = useState<Calificacion | "todos">("todos");
+  const [candSearch, setCandSearch] = useState("");
 
   const jobsRef = useRef(jobs);
   useEffect(() => {
@@ -941,7 +944,10 @@ export default function Home() {
         ? califOf(c) !== "descartado"
         : califOf(c) === califFilter,
   );
-  const shownActive = byCalif.filter((c) => passesFilters(c, activeFilters));
+  const byFilters = byCalif.filter((c) => passesFilters(c, activeFilters));
+  // Búsqueda por nombre (sin acentos ni mayúsculas).
+  const search = norm(candSearch.trim());
+  const shownActive = search ? byFilters.filter((c) => norm(c.name).includes(search)) : byFilters;
   const hiddenActive = byCalif.length - shownActive.length;
   const califCount = (v: Calificacion) => rankedActive.filter((c) => califOf(c) === v).length;
 
@@ -1364,6 +1370,17 @@ export default function Home() {
             <div className="results-toolbar">
               <h2 style={{ margin: 0 }}>Candidatos</h2>
               <span className="count">{activeJob.candidates.length} en total</span>
+              {activeJob.candidates.length > 0 && (
+                <div className="cand-search">
+                  <span className="cand-search-icon">🔎</span>
+                  <input
+                    type="search"
+                    placeholder="Buscar por nombre…"
+                    value={candSearch}
+                    onChange={(e) => setCandSearch(e.target.value)}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="calif-filters">
@@ -1477,6 +1494,8 @@ export default function Home() {
                     }}
                     onViewCv={openCv}
                     onReevaluate={() => reevaluateOne(activeJob.id, c.id)}
+                    onNotes={(t) => patchCandidate(activeJob.id, c.id, { notes: t })}
+                    jobTitle={activeJob.title}
                   />
                 ))}
               </div>
@@ -1659,6 +1678,8 @@ function CandidateRow({
   undoUntil,
   onUndo,
   onConfirm,
+  onNotes,
+  jobTitle,
 }: {
   cand: Candidate;
   rank: number;
@@ -1672,9 +1693,29 @@ function CandidateRow({
   undoUntil?: number;
   onUndo?: () => void;
   onConfirm?: () => void;
+  onNotes?: (t: string) => void;
+  jobTitle?: string;
 }) {
   const ev = cand.evaluation;
   const cur = califOf(cand);
+  const [copied, setCopied] = useState(false);
+
+  // Mensaje de contacto listo para pegar en WhatsApp/mail.
+  function copyContactMessage() {
+    const first = cand.name.split(/\s+/)[0] || cand.name;
+    const puesto = jobTitle?.trim() ? ` al puesto de ${jobTitle.trim()}` : "";
+    const msg =
+      `Hola ${first}, ¿cómo estás? Te escribo por tu postulación${puesto}. ` +
+      `Nos interesó tu perfil y nos gustaría coordinar una entrevista. ` +
+      `¿Qué disponibilidad tenés en los próximos días? ¡Gracias!`;
+    navigator.clipboard?.writeText(msg).then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 2500);
+      },
+      () => {},
+    );
+  }
   return (
     <div className={`result${open ? " open" : ""}${pendingUndo ? " pending-undo" : ""}`}>
       <div className="result-head">
@@ -1770,6 +1811,9 @@ function CandidateRow({
                 )}
               </button>
             )}
+            <button className="btn btn-ghost" onClick={copyContactMessage}>
+              {copied ? "✓ Mensaje copiado" : "💬 Copiar mensaje"}
+            </button>
             <label className="proc-status">
               Estado:
               <select
@@ -1784,6 +1828,20 @@ function CandidateRow({
                 <option value="descartado">Descartado</option>
               </select>
             </label>
+          </div>
+
+          <div className="cand-notes">
+            <label className="cand-notes-label" htmlFor={`notes-${cand.id}`}>
+              📝 Notas
+            </label>
+            <textarea
+              id={`notes-${cand.id}`}
+              className="cand-notes-input"
+              rows={2}
+              placeholder="Anotá lo que quieras recordar: lo que pidió, cómo fue la entrevista, un llamado…"
+              value={cand.notes ?? ""}
+              onChange={(e) => onNotes?.(e.target.value)}
+            />
           </div>
           {cand.scoreStatus === "error" && (
             <div className="error-box">{cand.error || "No se pudo evaluar."}</div>

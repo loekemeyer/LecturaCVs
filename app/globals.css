@@ -1067,6 +1067,53 @@ select.status-select.cal-descartado {
   font-size: 13px;
   color: var(--text-faint);
 }
+.cand-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: var(--surface);
+}
+.cand-search-icon {
+  font-size: 13px;
+  opacity: 0.7;
+}
+.cand-search input {
+  font: inherit;
+  font-size: 13.5px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  width: 150px;
+  max-width: 40vw;
+}
+/* notas libres del candidato (cuerpo expandido) */
+.cand-notes {
+  margin-top: 12px;
+}
+.cand-notes-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 5px;
+}
+.cand-notes-input {
+  width: 100%;
+  font: inherit;
+  font-size: 13.5px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fffdf5;
+  resize: vertical;
+}
+.cand-notes-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
 
 @media (max-width: 560px) {
   .criterion {
