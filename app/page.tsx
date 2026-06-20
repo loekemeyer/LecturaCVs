@@ -251,8 +251,10 @@ export default function Home() {
   const [scanError, setScanError] = useState("");
   const [importingTitle, setImportingTitle] = useState<string | null>(null);
   const [toast, setToast] = useState("");
-  const [undo, setUndo] = useState<{ msg: string; run: () => void } | null>(null);
-  const undoTimer = useRef<number | null>(null);
+  // Candidatos recién descartados que siguen en pantalla durante unos segundos
+  // (con "Deshacer" en su fila) antes de irse. Guardamos su calificación previa.
+  const [graceDiscard, setGraceDiscard] = useState<Record<string, Calificacion>>({});
+  const graceTimers = useRef<Record<string, number>>({});
   const [evalProgress, setEvalProgress] = useState<{
     jobId: string;
     done: number;
@@ -347,12 +349,30 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 6000);
   }
 
-  // Aviso con "Deshacer" para acciones que sacan al candidato de la pantalla
-  // (descartar). Así un toque sin querer no hace que desaparezca sin vuelta atrás.
-  function showUndo(msg: string, run: () => void) {
-    if (undoTimer.current) window.clearTimeout(undoTimer.current);
-    setUndo({ msg, run });
-    undoTimer.current = window.setTimeout(() => setUndo(null), 10000);
+  // Descarta a un candidato pero lo deja 10s en la lista con "Deshacer" en su
+  // fila; recién después desaparece. Así un toque sin querer tiene vuelta atrás.
+  function discardWithGrace(jobId: string, candId: string, prev: Calificacion) {
+    patchCandidate(jobId, candId, { calificacion: "descartado" });
+    setGraceDiscard((g) => ({ ...g, [candId]: prev }));
+    if (graceTimers.current[candId]) window.clearTimeout(graceTimers.current[candId]);
+    graceTimers.current[candId] = window.setTimeout(() => {
+      setGraceDiscard((g) => {
+        const { [candId]: _drop, ...rest } = g;
+        return rest;
+      });
+      delete graceTimers.current[candId];
+    }, 10000);
+  }
+
+  function undoDiscard(jobId: string, candId: string) {
+    if (graceTimers.current[candId]) window.clearTimeout(graceTimers.current[candId]);
+    delete graceTimers.current[candId];
+    const prev = graceDiscard[candId] ?? "sincalificar";
+    setGraceDiscard((g) => {
+      const { [candId]: _drop, ...rest } = g;
+      return rest;
+    });
+    patchCandidate(jobId, candId, { calificacion: prev });
   }
 
   // Recordamos la última pestaña que no es el perfil (para el botón "Mi perfil").
@@ -901,8 +921,13 @@ export default function Home() {
   const activeFilters = activeJob?.filters ?? DEFAULT_FILTERS;
   const rankedActive = activeJob ? rankedCandidates(activeJob) : [];
   // Filtro por color (calificación). "todos" muestra todo menos los descartados.
+  // Los recién descartados (período de gracia) siguen visibles unos segundos.
   const byCalif = rankedActive.filter((c) =>
-    califFilter === "todos" ? califOf(c) !== "descartado" : califOf(c) === califFilter,
+    graceDiscard[c.id] !== undefined
+      ? true
+      : califFilter === "todos"
+        ? califOf(c) !== "descartado"
+        : califOf(c) === califFilter,
   );
   const shownActive = byCalif.filter((c) => passesFilters(c, activeFilters));
   const hiddenActive = byCalif.length - shownActive.length;
@@ -929,22 +954,6 @@ export default function Home() {
       </header>
 
       {toast && <div className="toast">{toast}</div>}
-
-      {undo && (
-        <div className="toast toast-undo">
-          <span>{undo.msg}</span>
-          <button
-            className="undo-btn"
-            onClick={() => {
-              if (undoTimer.current) window.clearTimeout(undoTimer.current);
-              undo.run();
-              setUndo(null);
-            }}
-          >
-            ↩ Deshacer
-          </button>
-        </div>
-      )}
 
       {/* Entrada (nada elegido): botón grande. No se muestran los avisos todavía. */}
       {activeTab === "" && (
@@ -1444,14 +1453,16 @@ export default function Home() {
                         s === "descartado" ? { status: s, calificacion: "descartado" } : { status: s },
                       )
                     }
+                    pendingDiscard={graceDiscard[c.id] !== undefined}
+                    onUndoDiscard={() => undoDiscard(activeJob.id, c.id)}
                     onCalif={(k) => {
                       const prev = c.calificacion ?? "sincalificar";
-                      patchCandidate(activeJob.id, c.id, { calificacion: k });
-                      // Descartar lo saca de la pantalla: ofrecemos deshacer.
+                      // Descartar lo saca de la pantalla: lo dejamos 10s con
+                      // "Deshacer" en su fila antes de que desaparezca.
                       if (k === "descartado" && prev !== "descartado") {
-                        showUndo(`Descartaste a ${c.name}.`, () =>
-                          patchCandidate(activeJob.id, c.id, { calificacion: prev }),
-                        );
+                        discardWithGrace(activeJob.id, c.id, prev);
+                      } else {
+                        patchCandidate(activeJob.id, c.id, { calificacion: k });
                       }
                     }}
                     onViewCv={openCv}
@@ -1616,6 +1627,8 @@ function CandidateRow({
   onCalif,
   onViewCv,
   onReevaluate,
+  pendingDiscard,
+  onUndoDiscard,
 }: {
   cand: Candidate;
   rank: number;
@@ -1625,10 +1638,12 @@ function CandidateRow({
   onCalif: (k: Calificacion) => void;
   onViewCv: (c: { name: string; emailUid?: number; cvText?: string }) => void;
   onReevaluate: () => void;
+  pendingDiscard?: boolean;
+  onUndoDiscard?: () => void;
 }) {
   const ev = cand.evaluation;
   return (
-    <div className={`result${open ? " open" : ""}`}>
+    <div className={`result${open ? " open" : ""}${pendingDiscard ? " discarding" : ""}`}>
       <div className="result-head">
         <span className="rank">#{rank}</span>
         {ev ? (
@@ -1651,24 +1666,33 @@ function CandidateRow({
             {cand.scoreStatus === "error" ? " · error al evaluar" : ""}
           </div>
         </div>
-        <div className="cal-dots" role="group" aria-label="Calificación">
-          {CALIF_PICKER.map(({ value: v, short }) => {
-            const active = califOf(cand) === v;
-            return (
-              <button
-                key={v}
-                type="button"
-                className={`cal-pick cal-${v}${active ? " active" : ""}`}
-                onClick={() => onCalif(v)}
-                title={califLabel(v)}
-                aria-pressed={active}
-              >
-                <span className="cal-pick-dot" />
-                <span className="cal-pick-txt">{short}</span>
-              </button>
-            );
-          })}
-        </div>
+        {pendingDiscard ? (
+          <div className="cal-undo">
+            <span className="cal-undo-label">🔴 Descartado</span>
+            <button type="button" className="undo-btn" onClick={onUndoDiscard}>
+              ↩ Deshacer
+            </button>
+          </div>
+        ) : (
+          <div className="cal-dots" role="group" aria-label="Calificación">
+            {CALIF_PICKER.map(({ value: v, short }) => {
+              const active = califOf(cand) === v;
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  className={`cal-pick cal-${v}${active ? " active" : ""}`}
+                  onClick={() => onCalif(v)}
+                  title={califLabel(v)}
+                  aria-pressed={active}
+                >
+                  <span className="cal-pick-dot" />
+                  <span className="cal-pick-txt">{short}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         <span className="chevron" onClick={onToggle}>
           ▾
         </span>
