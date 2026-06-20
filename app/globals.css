@@ -699,6 +699,13 @@ select.status-select.cal-descartado {
 }
 
 /* control: cuántos CVs analizar */
+.profile-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
 /* Pasos guía dentro de una búsqueda */
 .paso {
   display: inline-block;

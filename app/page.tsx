@@ -390,6 +390,13 @@ export default function Home() {
     setCodeChallenge("");
     setCodeSentTo("");
   }
+  // Cerrar sesión a propósito (desde "Mi perfil"): vuelve a pedir el código.
+  function logout() {
+    onAuthFail();
+    setActiveTab("");
+    setCodeInput("");
+    setAuthErr("");
+  }
 
   // Chequeo inicial: ¿hace falta código? ¿el token guardado sigue válido?
   useEffect(() => {
@@ -1306,6 +1313,7 @@ export default function Home() {
           onOpenJob={(jobId) => setActiveTab(jobId)}
           onExportBackup={exportBackup}
           onImportBackup={importBackup}
+          onLogout={logout}
         />
       )}
 
@@ -2626,6 +2634,7 @@ function Profile({
   onOpenJob,
   onExportBackup,
   onImportBackup,
+  onLogout,
 }: {
   jobs: Job[];
   sedes: Sede[];
@@ -2639,13 +2648,19 @@ function Profile({
   onOpenJob: (jobId: string) => void;
   onExportBackup: () => void;
   onImportBackup: (file: File) => void;
+  onLogout: () => void;
 }) {
   const backupFileRef = useRef<HTMLInputElement>(null);
   return (
     <>
-      <button className="back-btn" onClick={onBack}>
-        ← Volver
-      </button>
+      <div className="profile-top">
+        <button className="back-btn" onClick={onBack}>
+          ← Volver
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={onLogout}>
+          🔒 Cerrar sesión
+        </button>
+      </div>
       <section className="card">
         <div className="results-toolbar">
           <h2 style={{ margin: 0 }}>👤 Mi perfil</h2>
