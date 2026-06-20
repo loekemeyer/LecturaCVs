@@ -33,7 +33,7 @@ type JobFilters = {
 };
 
 /** Sede laboral del perfil: una dirección reutilizable que se elige por búsqueda. */
-type Sede = { id: string; label: string; address: string };
+type Sede = { id: string; label: string; address: string; confirmed?: boolean };
 
 /** Aviso encontrado en Gmail durante el escaneo (antes de levantar los CVs). */
 type Aviso = { title: string; count: number; uids: number[]; firstDate: string };
@@ -251,10 +251,11 @@ export default function Home() {
   const [scanError, setScanError] = useState("");
   const [importingTitle, setImportingTitle] = useState<string | null>(null);
   const [toast, setToast] = useState("");
-  // Candidatos recién descartados que siguen en pantalla durante unos segundos
-  // (con "Deshacer" + cuenta regresiva en su fila) antes de irse. Guardamos su
-  // calificación previa y el momento en que desaparecen.
-  const [graceDiscard, setGraceDiscard] = useState<
+  // Candidatos a los que se les cambió la calificación recién: durante unos
+  // segundos muestran "Deshacer" + cuenta regresiva en su fila (y quedan
+  // visibles aunque el filtro los ocultaría). Guardamos su calificación previa
+  // y el momento en que se cierra la ventana de deshacer.
+  const [graceUndo, setGraceUndo] = useState<
     Record<string, { prev: Calificacion; until: number }>
   >({});
   const graceTimers = useRef<Record<string, number>>({});
@@ -353,15 +354,15 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 6000);
   }
 
-  // Descarta a un candidato pero lo deja unos segundos en la lista con "Deshacer"
-  // + cuenta regresiva en su fila; recién después desaparece. Así un toque sin
-  // querer tiene vuelta atrás.
-  function discardWithGrace(jobId: string, candId: string, prev: Calificacion) {
-    patchCandidate(jobId, candId, { calificacion: "descartado" });
-    setGraceDiscard((g) => ({ ...g, [candId]: { prev, until: Date.now() + GRACE_MS } }));
+  // Cambia la calificación pero deja al candidato unos segundos con "Deshacer" +
+  // cuenta regresiva en su fila (visible aunque el filtro lo ocultaría). Así
+  // cualquier toque sin querer tiene vuelta atrás.
+  function setCalifWithUndo(jobId: string, candId: string, prev: Calificacion, next: Calificacion) {
+    patchCandidate(jobId, candId, { calificacion: next });
+    setGraceUndo((g) => ({ ...g, [candId]: { prev, until: Date.now() + GRACE_MS } }));
     if (graceTimers.current[candId]) window.clearTimeout(graceTimers.current[candId]);
     graceTimers.current[candId] = window.setTimeout(() => {
-      setGraceDiscard((g) => {
+      setGraceUndo((g) => {
         const { [candId]: _drop, ...rest } = g;
         return rest;
       });
@@ -369,14 +370,20 @@ export default function Home() {
     }, GRACE_MS);
   }
 
-  function undoDiscard(jobId: string, candId: string) {
+  // Cierra la ventana de deshacer ya (sin esperar el countdown): confirma el
+  // cambio y saca la fila del estado "pendiente".
+  function clearGrace(candId: string) {
     if (graceTimers.current[candId]) window.clearTimeout(graceTimers.current[candId]);
     delete graceTimers.current[candId];
-    const prev = graceDiscard[candId]?.prev ?? "sincalificar";
-    setGraceDiscard((g) => {
+    setGraceUndo((g) => {
       const { [candId]: _drop, ...rest } = g;
       return rest;
     });
+  }
+
+  function undoCalif(jobId: string, candId: string) {
+    const prev = graceUndo[candId]?.prev ?? "sincalificar";
+    clearGrace(candId);
     patchCandidate(jobId, candId, { calificacion: prev });
   }
 
@@ -926,9 +933,9 @@ export default function Home() {
   const activeFilters = activeJob?.filters ?? DEFAULT_FILTERS;
   const rankedActive = activeJob ? rankedCandidates(activeJob) : [];
   // Filtro por color (calificación). "todos" muestra todo menos los descartados.
-  // Los recién descartados (período de gracia) siguen visibles unos segundos.
+  // Los que se acaban de re-calificar (ventana de deshacer) siguen visibles.
   const byCalif = rankedActive.filter((c) =>
-    graceDiscard[c.id] !== undefined
+    graceUndo[c.id] !== undefined
       ? true
       : califFilter === "todos"
         ? califOf(c) !== "descartado"
@@ -1458,18 +1465,15 @@ export default function Home() {
                         s === "descartado" ? { status: s, calificacion: "descartado" } : { status: s },
                       )
                     }
-                    pendingDiscard={graceDiscard[c.id] !== undefined}
-                    discardUntil={graceDiscard[c.id]?.until}
-                    onUndoDiscard={() => undoDiscard(activeJob.id, c.id)}
+                    pendingUndo={graceUndo[c.id] !== undefined}
+                    undoUntil={graceUndo[c.id]?.until}
+                    onUndo={() => undoCalif(activeJob.id, c.id)}
+                    onConfirm={() => clearGrace(c.id)}
                     onCalif={(k) => {
                       const prev = c.calificacion ?? "sincalificar";
-                      // Descartar lo saca de la pantalla: lo dejamos 10s con
-                      // "Deshacer" en su fila antes de que desaparezca.
-                      if (k === "descartado" && prev !== "descartado") {
-                        discardWithGrace(activeJob.id, c.id, prev);
-                      } else {
-                        patchCandidate(activeJob.id, c.id, { calificacion: k });
-                      }
+                      if (k === prev) return; // mismo valor: nada que hacer
+                      // Cualquier cambio queda 8s con "Deshacer" en su fila.
+                      setCalifWithUndo(activeJob.id, c.id, prev, k);
                     }}
                     onViewCv={openCv}
                     onReevaluate={() => reevaluateOne(activeJob.id, c.id)}
@@ -1651,9 +1655,10 @@ function CandidateRow({
   onCalif,
   onViewCv,
   onReevaluate,
-  pendingDiscard,
-  discardUntil,
-  onUndoDiscard,
+  pendingUndo,
+  undoUntil,
+  onUndo,
+  onConfirm,
 }: {
   cand: Candidate;
   rank: number;
@@ -1663,13 +1668,15 @@ function CandidateRow({
   onCalif: (k: Calificacion) => void;
   onViewCv: (c: { name: string; emailUid?: number; cvText?: string }) => void;
   onReevaluate: () => void;
-  pendingDiscard?: boolean;
-  discardUntil?: number;
-  onUndoDiscard?: () => void;
+  pendingUndo?: boolean;
+  undoUntil?: number;
+  onUndo?: () => void;
+  onConfirm?: () => void;
 }) {
   const ev = cand.evaluation;
+  const cur = califOf(cand);
   return (
-    <div className={`result${open ? " open" : ""}${pendingDiscard ? " discarding" : ""}`}>
+    <div className={`result${open ? " open" : ""}${pendingUndo ? " pending-undo" : ""}`}>
       <div className="result-head">
         <span className="rank">#{rank}</span>
         {ev ? (
@@ -1692,13 +1699,23 @@ function CandidateRow({
             {cand.scoreStatus === "error" ? " · error al evaluar" : ""}
           </div>
         </div>
-        {pendingDiscard ? (
+        {pendingUndo ? (
           <div className="cal-undo">
-            <span className="cal-undo-label">🔴 Descartado</span>
-            <button type="button" className="undo-btn" onClick={onUndoDiscard}>
+            <span className="cal-undo-label">
+              <span className={`cal-dot cal-${cur}`} /> {califLabel(cur)}
+            </span>
+            <button
+              type="button"
+              className="confirm-btn"
+              onClick={onConfirm}
+              title="Confirmar la calificación"
+            >
+              ✓
+            </button>
+            <button type="button" className="undo-btn" onClick={onUndo}>
               ↩ Deshacer
             </button>
-            {discardUntil != null && <Countdown until={discardUntil} />}
+            {undoUntil != null && <Countdown until={undoUntil} />}
           </div>
         ) : (
           <div className="cal-dots" role="group" aria-label="Calificación">
@@ -1994,11 +2011,12 @@ function Profile({
           Cargá acá las direcciones de tus sedes. Después, en cada búsqueda, elegís a cuál
           corresponde para que la IA calcule distancia y tiempo de viaje de los candidatos.
         </p>
-        {sedes.length === 0 ? (
-          <p className="empty">Todavía no cargaste ninguna sede.</p>
-        ) : (
-          <div className="sede-list">
-            {sedes.map((s) => (
+        {/* Sedes en edición (sin confirmar): se cargan acá arriba. */}
+        {sedes
+          .filter((s) => !s.confirmed)
+          .map((s) => {
+            const ready = s.label.trim() !== "" && s.address.trim() !== "";
+            return (
               <div className="sede-row" key={s.id}>
                 <label className="sede-field">
                   <span className="sede-flabel">Sede</span>
@@ -2018,6 +2036,14 @@ function Profile({
                   />
                 </label>
                 <button
+                  className="icon-btn sede-confirm"
+                  title={ready ? "Confirmar sede" : "Completá nombre y dirección"}
+                  disabled={!ready}
+                  onClick={() => onUpdateSede(s.id, { confirmed: true })}
+                >
+                  ✓
+                </button>
+                <button
                   className="icon-btn sede-del"
                   title="Eliminar sede"
                   onClick={() => onRemoveSede(s.id)}
@@ -2025,12 +2051,43 @@ function Profile({
                   🗑
                 </button>
               </div>
-            ))}
-          </div>
-        )}
+            );
+          })}
         <button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={onAddSede}>
           + Agregar sede
         </button>
+
+        {/* Sedes confirmadas: quedan listadas abajo. */}
+        {sedes.some((s) => s.confirmed) && (
+          <div className="sede-confirmed-list">
+            <h3 className="profile-h3">Sedes</h3>
+            {sedes
+              .filter((s) => s.confirmed)
+              .map((s) => (
+                <div className="sede-done" key={s.id}>
+                  <span className="sede-done-pin">📍</span>
+                  <div className="sede-done-info">
+                    <span className="sede-done-label">{s.label.trim() || "(sin nombre)"}</span>
+                    <span className="sede-done-addr">{s.address}</span>
+                  </div>
+                  <button
+                    className="icon-btn sede-edit"
+                    title="Editar sede"
+                    onClick={() => onUpdateSede(s.id, { confirmed: false })}
+                  >
+                    ✎
+                  </button>
+                  <button
+                    className="icon-btn sede-del"
+                    title="Eliminar sede"
+                    onClick={() => onRemoveSede(s.id)}
+                  >
+                    🗑
+                  </button>
+                </div>
+              ))}
+          </div>
+        )}
       </section>
 
       <section className="card">

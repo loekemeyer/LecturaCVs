@@ -264,6 +264,66 @@ label.field {
 .sede-del {
   margin-bottom: 2px;
 }
+/* tilde para confirmar una sede (la baja a la lista "Sedes") */
+.sede-confirm {
+  margin-bottom: 2px;
+  border-color: #86efac;
+  color: #15803d;
+  font-weight: 800;
+}
+.sede-confirm:hover:not(:disabled) {
+  border-color: #16a34a;
+  color: #fff;
+  background: #16a34a;
+}
+.sede-confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* lista de sedes ya confirmadas */
+.sede-confirmed-list {
+  margin-top: 18px;
+}
+.sede-done {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f0fdf4;
+  margin-bottom: 8px;
+}
+.sede-done-pin {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.sede-done-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.sede-done-label {
+  font-weight: 700;
+  font-size: 14px;
+}
+.sede-done-addr {
+  font-size: 12.5px;
+  color: var(--text-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sede-edit {
+  flex-shrink: 0;
+}
+.sede-edit:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-soft);
+}
 /* autocompletado de dirección */
 .addr-input {
   position: relative;
@@ -1067,26 +1127,46 @@ select.status-select.cal-descartado {
   font-size: 14px;
   margin-bottom: 14px;
 }
-/* fila de un candidato recién descartado: queda atenuada unos segundos con
-   "Deshacer" en la misma fila, antes de desaparecer de la lista. */
-.result.discarding {
-  background: #fef2f2;
-  border-color: #fca5a5;
-}
-.result.discarding .result-id {
-  opacity: 0.6;
+/* fila de un candidato recién re-calificado: queda destacada unos segundos con
+   confirmar (✓), "Deshacer" y cuenta regresiva en la misma fila. */
+.result.pending-undo {
+  background: #fffbeb;
+  border-color: #fde68a;
 }
 .cal-undo {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   flex-wrap: wrap;
 }
 .cal-undo-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12.5px;
   font-weight: 700;
-  color: #b91c1c;
+  color: var(--text);
   white-space: nowrap;
+}
+.confirm-btn {
+  font: inherit;
+  font-weight: 800;
+  font-size: 13px;
+  line-height: 1;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1.5px solid #16a34a;
+  background: #16a34a;
+  color: #fff;
+  cursor: pointer;
+}
+.confirm-btn:hover {
+  background: #15803d;
+  border-color: #15803d;
 }
 .undo-btn {
   font: inherit;
@@ -1095,13 +1175,13 @@ select.status-select.cal-descartado {
   white-space: nowrap;
   padding: 5px 11px;
   border-radius: 999px;
-  border: 1.5px solid #b91c1c;
+  border: 1.5px solid #b45309;
   background: #fff;
-  color: #b91c1c;
+  color: #b45309;
   cursor: pointer;
 }
 .undo-btn:hover {
-  background: #b91c1c;
+  background: #b45309;
   color: #fff;
 }
 .cd-box {
@@ -1112,9 +1192,9 @@ select.status-select.cal-descartado {
   height: 24px;
   padding: 0 6px;
   border-radius: 6px;
-  border: 1.5px solid #fca5a5;
+  border: 1.5px solid #fcd34d;
   background: #fff;
-  color: #b91c1c;
+  color: #b45309;
   font-size: 12.5px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
