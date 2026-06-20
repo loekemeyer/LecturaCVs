@@ -308,14 +308,13 @@ export default function Home() {
 
   // Recordamos la última pestaña que no es el perfil (para el botón "Mi perfil").
   useEffect(() => {
-    if (activeTab && activeTab !== "perfil") lastTabRef.current = activeTab;
+    if (activeTab !== "perfil") lastTabRef.current = activeTab;
   }, [activeTab]);
 
-  // Botón "Mi perfil": abre el perfil o vuelve a donde estabas.
+  // Botón "Mi perfil": abre el perfil o vuelve exactamente a donde estabas
+  // (incluida la pantalla inicial vacía).
   function toggleProfile() {
-    setActiveTab((cur) =>
-      cur === "perfil" ? lastTabRef.current || jobs[0]?.id || "" : "perfil",
-    );
+    setActiveTab((cur) => (cur === "perfil" ? lastTabRef.current : "perfil"));
   }
 
   // ---------- helpers de estado ----------
@@ -871,57 +870,46 @@ export default function Home() {
         </button>
       </header>
 
-      {jobs.length === 0 && (
-        <div className="toolbar">
-          <button className="btn btn-primary" onClick={openScanModal}>
-            ⟳ Importar de Gmail
-          </button>
-        </div>
-      )}
       {toast && <div className="toast">{toast}</div>}
 
-      {/* pestañas */}
-      {jobs.length > 0 && (
-        <div className="tabs">
-          {jobs.map((j) => (
-            <button
-              key={j.id}
-              className={`tab${activeTab === j.id ? " active" : ""}`}
-              onClick={() => setActiveTab(j.id)}
-            >
-              {j.title} · {shortDate(j.firstDate)}
-              <span className="tab-count">{j.candidates.length}</span>
+      {/* Entrada (nada elegido): botón grande. No se muestran los avisos todavía. */}
+      {activeTab === "" && (
+        <div className="entry-cta">
+          <button className="btn btn-primary btn-xl" onClick={openScanModal}>
+            ⟳ {jobs.length === 0 ? "Importar de Gmail" : "Nueva búsqueda"}
+          </button>
+          {jobs.length > 0 ? (
+            <button className="linklike" onClick={() => setActiveTab("dashboard")}>
+              📊 Ver panel general
             </button>
-          ))}
-          <button className="tab tab-new" onClick={openScanModal}>
-            + Nueva búsqueda
-          </button>
-          <button
-            className={`tab${activeTab === "dashboard" ? " active" : ""}`}
-            onClick={() => setActiveTab("dashboard")}
-          >
-            📊 Panel general
-          </button>
+          ) : (
+            <p className="empty" style={{ marginTop: 4 }}>
+              Elegí uno de tus avisos de ZonaJobs y traé los CVs.
+            </p>
+          )}
         </div>
       )}
 
-      {/* vacío */}
-      {jobs.length === 0 && (
-        <div className="card">
-          <p className="empty">
-            Todavía no hay búsquedas. Tocá <strong>«Importar de Gmail»</strong>, elegí un aviso y
-            traé los CVs de tus avisos de ZonaJobs.
-          </p>
-        </div>
-      )}
-
-      {/* al entrar (hay búsquedas pero ninguna elegida): pantalla limpia */}
-      {jobs.length > 0 && activeTab === "" && (
-        <div className="card">
-          <p className="empty">
-            Elegí un aviso de arriba para ver sus candidatos, o tocá{" "}
-            <strong>«+ Nueva búsqueda»</strong> para importar otro.
-          </p>
+      {/* Con una búsqueda o el panel abierto: nombre + acciones a la derecha. */}
+      {activeTab !== "" && activeTab !== "perfil" && (
+        <div className="aviso-nav">
+          <span className="aviso-current-name">
+            {activeJob
+              ? `${activeJob.title} · ${shortDate(activeJob.firstDate)}`
+              : activeTab === "dashboard"
+                ? "📊 Panel general"
+                : ""}
+          </span>
+          <div className="aviso-nav-actions">
+            {activeTab !== "dashboard" && (
+              <button className="linklike" onClick={() => setActiveTab("dashboard")}>
+                📊 Panel general
+              </button>
+            )}
+            <button className="btn btn-ghost tab-new-btn" onClick={openScanModal}>
+              + Nueva búsqueda
+            </button>
+          </div>
         </div>
       )}
 
@@ -935,6 +923,7 @@ export default function Home() {
           sedes={sedes}
           companyValues={companyValues}
           onCompanyValues={setCompanyValues}
+          onBack={toggleProfile}
           onAddSede={addSede}
           onUpdateSede={updateSede}
           onRemoveSede={removeSede}
@@ -1382,30 +1371,47 @@ export default function Home() {
                   <p className="field-hint" style={{ marginTop: 0 }}>
                     Elegí de qué aviso querés levantar los CVs:
                   </p>
-                  {scanResults.map((a) => (
-                    <div className="aviso-row" key={a.title}>
-                      <div className="aviso-info">
-                        <span className="aviso-title">{a.title}</span>
-                        <span className="aviso-count">
-                          {a.count} CV{a.count !== 1 ? "s" : ""}
-                          {a.firstDate ? ` · primer CV ${shortDate(a.firstDate)}` : ""}
-                        </span>
-                      </div>
-                      <button
-                        className="btn btn-primary"
-                        onClick={() => importAviso(a)}
-                        disabled={importingTitle !== null}
-                      >
-                        {importingTitle === a.title ? (
-                          <>
-                            <span className="spinner" /> Importando…
-                          </>
+                  {scanResults.map((a) => {
+                    const existing = jobs.find(
+                      (j) => norm(j.title) === norm(a.title) && j.candidates.length > 0,
+                    );
+                    return (
+                      <div className="aviso-row" key={a.title}>
+                        <div className="aviso-info">
+                          <span className="aviso-title">{a.title}</span>
+                          <span className="aviso-count">
+                            {a.count} CV{a.count !== 1 ? "s" : ""}
+                            {a.firstDate ? ` · primer CV ${shortDate(a.firstDate)}` : ""}
+                          </span>
+                        </div>
+                        {existing ? (
+                          <button
+                            className="btn btn-ghost"
+                            onClick={() => {
+                              setActiveTab(existing.id);
+                              setScanOpen(false);
+                            }}
+                          >
+                            Abrir
+                          </button>
                         ) : (
-                          "Importar"
+                          <button
+                            className="btn btn-primary"
+                            onClick={() => importAviso(a)}
+                            disabled={importingTitle !== null}
+                          >
+                            {importingTitle === a.title ? (
+                              <>
+                                <span className="spinner" /> Importando…
+                              </>
+                            ) : (
+                              "Importar"
+                            )}
+                          </button>
                         )}
-                      </button>
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1617,6 +1623,7 @@ function Profile({
   sedes,
   companyValues,
   onCompanyValues,
+  onBack,
   onAddSede,
   onUpdateSede,
   onRemoveSede,
@@ -1627,6 +1634,7 @@ function Profile({
   sedes: Sede[];
   companyValues: string;
   onCompanyValues: (v: string) => void;
+  onBack: () => void;
   onAddSede: () => void;
   onUpdateSede: (id: string, patch: Partial<Sede>) => void;
   onRemoveSede: (id: string) => void;
@@ -1635,6 +1643,9 @@ function Profile({
 }) {
   return (
     <>
+      <button className="back-btn" onClick={onBack}>
+        ← Volver
+      </button>
       <section className="card">
         <div className="results-toolbar">
           <h2 style={{ margin: 0 }}>👤 Mi perfil</h2>

@@ -877,6 +877,62 @@ textarea {
   background: var(--primary-soft);
 }
 
+/* entrada: botón grande */
+.entry-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 16px;
+  text-align: center;
+}
+.btn-xl {
+  font-size: 16px;
+  padding: 15px 30px;
+  border-radius: 12px;
+}
+/* barra con el aviso elegido + acciones */
+.aviso-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.aviso-current-name {
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.aviso-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+.tab-new-btn {
+  white-space: nowrap;
+}
+/* botón volver (perfil) */
+.back-btn {
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary-dark);
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .job-head {
   display: flex;
   align-items: center;
