@@ -1516,6 +1516,16 @@ export default function Home() {
               <p className="empty">Ningún candidato coincide con el filtro.</p>
             ) : (
               <div style={{ marginTop: 12 }}>
+                <div className="list-actions">
+                  <span className="list-actions-count">{shownActive.length} en la lista</span>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => exportCandidatesCsv(activeJob.title, shownActive)}
+                    title="Descargar esta lista para abrir en Excel"
+                  >
+                    ⬇ Exportar a Excel
+                  </button>
+                </div>
                 {shownActive.map((c, i) => (
                   <CandidateRow
                     key={c.id}
@@ -1967,6 +1977,58 @@ function CandidateRow({
       )}
     </div>
   );
+}
+
+// Exporta la lista de candidatos (la que se está viendo) a un CSV que abre
+// directo en Excel (separador ";" y BOM para que los acentos se vean bien).
+function exportCandidatesCsv(jobTitle: string, list: Candidate[]) {
+  const statusLabel = (s: Status) => STATUSES.find((x) => x.value === s)?.label ?? s;
+  const cell = (v: unknown) => {
+    const s = String(v ?? "");
+    return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const headers = [
+    "#",
+    "Nombre",
+    "Puntaje",
+    "Calificación",
+    "Estado",
+    "Edad",
+    "Distancia (km)",
+    "Sueldo pretendido",
+    "Notas",
+  ];
+  const rows = list.map((c, i) => {
+    const ev = c.evaluation;
+    return [
+      i + 1,
+      c.name,
+      ev ? toTen(ev.overallScore) : "",
+      califLabel(califOf(c)),
+      statusLabel(c.status),
+      ev?.age ?? "",
+      ev?.distanceKm ?? "",
+      c.expectedSalary ?? "",
+      c.notes ?? "",
+    ]
+      .map(cell)
+      .join(";");
+  });
+  const csv = "﻿" + [headers.map(cell).join(";"), ...rows].join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const safe =
+    jobTitle
+      .replace(/[^\p{L}\p{N}]+/gu, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "candidatos";
+  a.href = url;
+  a.download = `${safe}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 // Sugerencias de dirección con OpenStreetMap (Nominatim): gratis y sin API key.
