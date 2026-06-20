@@ -865,34 +865,39 @@ export default function Home() {
         </button>
       </header>
 
-      <div className="toolbar">
-        <button className="btn btn-primary" onClick={openScanModal}>
-          ⟳ Importar de Gmail
-        </button>
-      </div>
+      {jobs.length === 0 && (
+        <div className="toolbar">
+          <button className="btn btn-primary" onClick={openScanModal}>
+            ⟳ Importar de Gmail
+          </button>
+        </div>
+      )}
       {toast && <div className="toast">{toast}</div>}
 
       {/* pestañas */}
-      <div className="tabs">
-        {jobs.map((j) => (
-          <button
-            key={j.id}
-            className={`tab${activeTab === j.id ? " active" : ""}`}
-            onClick={() => setActiveTab(j.id)}
-          >
-            {j.title} · {shortDate(j.firstDate)}
-            <span className="tab-count">{j.candidates.length}</span>
+      {jobs.length > 0 && (
+        <div className="tabs">
+          {jobs.map((j) => (
+            <button
+              key={j.id}
+              className={`tab${activeTab === j.id ? " active" : ""}`}
+              onClick={() => setActiveTab(j.id)}
+            >
+              {j.title} · {shortDate(j.firstDate)}
+              <span className="tab-count">{j.candidates.length}</span>
+            </button>
+          ))}
+          <button className="tab tab-new" onClick={openScanModal}>
+            + Nueva búsqueda
           </button>
-        ))}
-        {jobs.length > 0 && (
           <button
             className={`tab${activeTab === "dashboard" ? " active" : ""}`}
             onClick={() => setActiveTab("dashboard")}
           >
             📊 Panel general
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* vacío */}
       {jobs.length === 0 && (

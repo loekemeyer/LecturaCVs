@@ -868,6 +868,14 @@ textarea {
 .tab.active .tab-count {
   background: rgba(255, 255, 255, 0.25);
 }
+.tab-new {
+  color: var(--primary-dark);
+  border-style: dashed;
+  border-color: var(--primary);
+}
+.tab-new:hover {
+  background: var(--primary-soft);
+}
 
 .job-head {
   display: flex;
