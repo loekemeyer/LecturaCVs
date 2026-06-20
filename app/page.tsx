@@ -793,19 +793,22 @@ export default function Home() {
 
   return (
     <main className="page">
-      <button
-        className={`profile-fab${activeTab === "perfil" ? " active" : ""}`}
-        onClick={toggleProfile}
-        title="Mi perfil"
-      >
-        👤 <span className="profile-fab-text">Mi perfil</span>
-      </button>
-      <header className="masthead">
-        <div className="logo">CV</div>
-        <div>
-          <h1>LecturaCVs</h1>
-          <p>Importá los CVs desde Gmail, organizalos por búsqueda y seguí a cada candidato.</p>
+      <header className="appbar">
+        <div className="brand">
+          <span className="logo">CV</span>
+          <div className="brand-text">
+            <span className="brand-name">LecturaCVs</span>
+            <span className="brand-tag">Pre-selección de candidatos con IA</span>
+          </div>
         </div>
+        <button
+          className={`profile-btn${activeTab === "perfil" ? " active" : ""}`}
+          onClick={toggleProfile}
+          title="Mi perfil"
+        >
+          <span className="profile-btn-icon">👤</span>
+          <span className="profile-btn-text">Mi perfil</span>
+        </button>
       </header>
 
       <div className="toolbar">
