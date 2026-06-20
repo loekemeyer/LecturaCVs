@@ -214,6 +214,18 @@ textarea {
   background: var(--primary-soft);
   border-color: var(--primary-soft);
 }
+.btn-pause {
+  background: #fff7ed;
+  color: #b45309;
+  border-color: #fdba74;
+}
+.btn-pause:hover:not(:disabled) {
+  background: #ffedd5;
+}
+.btn-pause:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .btn-row {
   display: flex;
   gap: 10px;

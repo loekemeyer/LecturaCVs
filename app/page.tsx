@@ -192,6 +192,7 @@ export default function Home() {
     done: number;
     total: number;
   } | null>(null);
+  const [pausing, setPausing] = useState(false);
   const [reevalFor, setReevalFor] = useState<string | null>(null);
   const [viewCv, setViewCv] = useState<{
     name: string;
@@ -206,6 +207,10 @@ export default function Home() {
     jobsRef.current = jobs;
   }, [jobs]);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Señal para pausar la evaluación en curso: los workers la leen antes de tomar
+  // cada candidato. Es un ref (no estado) para que vean el valor más reciente sin
+  // depender de re-renders.
+  const cancelEvalRef = useRef(false);
 
   // Cargar
   useEffect(() => {
@@ -403,7 +408,17 @@ export default function Home() {
     return data as Evaluation;
   }
 
-  async function evaluateJob(jobId: string) {
+  // Pide pausar la evaluación en curso. No corta los CVs que ya están en vuelo
+  // (esos terminan), solo evita que los workers tomen nuevos candidatos.
+  function pauseEval() {
+    cancelEvalRef.current = true;
+    setPausing(true);
+  }
+
+  // reevaluateAll=false (uso normal y "retomar"): evalúa solo los que faltan
+  // (pendientes o con error), dejando intactos los ya evaluados.
+  // reevaluateAll=true (al cambiar criterios): re-evalúa a todos.
+  async function evaluateJob(jobId: string, reevaluateAll = false) {
     const job = jobsRef.current.find((j) => j.id === jobId);
     if (!job) return;
     setReevalFor(null);
@@ -411,17 +426,26 @@ export default function Home() {
       showToast("Definí al menos un criterio con peso para esta búsqueda.");
       return;
     }
-    const targets = job.candidates.filter((c) => c.cvText && c.scoreStatus !== "scoring");
+    const targets = job.candidates.filter(
+      (c) => c.cvText && c.scoreStatus !== "scoring" && (reevaluateAll || c.scoreStatus !== "done"),
+    );
     if (!targets.length) {
-      showToast("No hay candidatos para evaluar en esta búsqueda.");
+      showToast(
+        reevaluateAll
+          ? "No hay candidatos para evaluar en esta búsqueda."
+          : "Todos los candidatos con CV ya están evaluados.",
+      );
       return;
     }
-    targets.forEach((c) => patchCandidate(jobId, c.id, { scoreStatus: "scoring", error: undefined }));
+    cancelEvalRef.current = false;
+    setPausing(false);
     setEvalProgress({ jobId, done: 0, total: targets.length });
     let i = 0;
     const worker = async () => {
       while (i < targets.length) {
+        if (cancelEvalRef.current) break; // pausa pedida: no tomamos más candidatos
         const c = targets[i++];
+        patchCandidate(jobId, c.id, { scoreStatus: "scoring", error: undefined });
         const current = jobsRef.current.find((j) => j.id === jobId) || job;
         try {
           const ev = await scoreCvText(current, c);
@@ -440,7 +464,21 @@ export default function Home() {
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => worker()));
+    const wasPaused = cancelEvalRef.current;
+    cancelEvalRef.current = false;
+    setPausing(false);
     setEvalProgress(null);
+    if (wasPaused) {
+      const left =
+        jobsRef.current
+          .find((j) => j.id === jobId)
+          ?.candidates.filter((c) => c.cvText && c.scoreStatus === "pending").length ?? 0;
+      showToast(
+        left > 0
+          ? `Análisis pausado. Quedan ${left} sin evaluar; tocá «Evaluar candidatos» para retomar.`
+          : "Análisis pausado.",
+      );
+    }
   }
 
   // ---------- subir archivo manual a una búsqueda ----------
@@ -712,19 +750,26 @@ export default function Home() {
             </details>
 
             <div className="btn-row">
-              <button
-                className="btn btn-primary"
-                onClick={() => evaluateJob(activeJob.id)}
-                disabled={evalProgress?.jobId === activeJob.id}
-              >
-                {evalProgress?.jobId === activeJob.id ? (
-                  <>
+              {evalProgress?.jobId === activeJob.id ? (
+                <>
+                  <button className="btn btn-primary" disabled>
                     <span className="spinner" /> Analizando… {evalProgress.done}/{evalProgress.total}
-                  </>
-                ) : (
-                  "Evaluar candidatos"
-                )}
-              </button>
+                  </button>
+                  <button className="btn btn-pause" onClick={pauseEval} disabled={pausing}>
+                    {pausing ? (
+                      <>
+                        <span className="spinner" /> Pausando…
+                      </>
+                    ) : (
+                      "⏸ Pausar análisis"
+                    )}
+                  </button>
+                </>
+              ) : (
+                <button className="btn btn-primary" onClick={() => evaluateJob(activeJob.id)}>
+                  Evaluar candidatos
+                </button>
+              )}
               <button className="btn btn-ghost" onClick={() => fileRef.current?.click()}>
                 + Agregar CV (archivo)
               </button>
@@ -753,8 +798,9 @@ export default function Home() {
                   />
                 </div>
                 <div className="progress-label">
-                  <span className="spinner" /> Analizando candidatos… {evalProgress.done} de{" "}
-                  {evalProgress.total}
+                  <span className="spinner" />{" "}
+                  {pausing ? "Pausando (termino los CVs en curso)…" : "Analizando candidatos…"}{" "}
+                  {evalProgress.done} de {evalProgress.total}
                 </div>
               </div>
             )}
@@ -770,7 +816,7 @@ export default function Home() {
                   className="btn btn-primary"
                   onClick={() => {
                     setReevalFor(null);
-                    evaluateJob(activeJob.id);
+                    evaluateJob(activeJob.id, true);
                   }}
                 >
                   Re-evaluar candidatos

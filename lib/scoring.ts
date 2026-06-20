@@ -183,7 +183,8 @@ export async function scoreCv(input: ScoreCvInput): Promise<Evaluation> {
 
   const salaryBlock =
     offeredSalary?.trim() || expectedSalary?.trim()
-      ? `\n\nDatos salariales (usalos si hay un criterio relacionado con el sueldo):
+      ? `\n\nDatos salariales (usalos si hay un criterio relacionado con el sueldo).
+Los montos están en pesos argentinos mensuales completos (ej. "1.000.000" = un millón de pesos por mes); interpretalos tal cual, sin reescalar:
 - Sueldo ofrecido por la empresa: ${offeredSalary?.trim() || "no especificado"}
 - Sueldo pretendido por este candidato: ${expectedSalary?.trim() || "no especificado"}`
       : "";
