@@ -396,6 +396,41 @@ textarea {
   flex-wrap: wrap;
   margin-bottom: 8px;
 }
+.discard-btn {
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+.discard-btn:hover {
+  opacity: 1;
+}
+.discarded-box {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.discarded-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.discarded-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.discarded-name {
+  font-size: 13px;
+  color: var(--text-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* control: cuántos CVs analizar */
 .eval-scope {
@@ -806,6 +841,9 @@ textarea {
   }
   .result-head .badge {
     order: 3;
+  }
+  .result-head .discard-btn {
+    order: 4;
   }
 }
 

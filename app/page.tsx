@@ -232,6 +232,7 @@ export default function Home() {
     loading?: boolean;
   } | null>(null);
   const [openCand, setOpenCand] = useState<Set<string>>(new Set());
+  const [showDiscarded, setShowDiscarded] = useState(false);
 
   const jobsRef = useRef(jobs);
   useEffect(() => {
@@ -646,7 +647,11 @@ export default function Home() {
       return;
     }
     let targets = job.candidates.filter(
-      (c) => c.cvText && c.scoreStatus !== "scoring" && (reevaluateAll || c.scoreStatus !== "done"),
+      (c) =>
+        c.cvText &&
+        c.status !== "descartado" &&
+        c.scoreStatus !== "scoring" &&
+        (reevaluateAll || c.scoreStatus !== "done"),
     );
     if (typeof limit === "number" && limit > 0) targets = targets.slice(0, limit);
     if (!targets.length) {
@@ -847,8 +852,11 @@ export default function Home() {
 
   const activeFilters = activeJob?.filters ?? DEFAULT_FILTERS;
   const rankedActive = activeJob ? rankedCandidates(activeJob) : [];
-  const shownActive = rankedActive.filter((c) => passesFilters(c, activeFilters));
-  const hiddenActive = rankedActive.length - shownActive.length;
+  // Los descartados (con el tachito) se sacan de la consideración y del listado.
+  const discardedActive = rankedActive.filter((c) => c.status === "descartado");
+  const consideredActive = rankedActive.filter((c) => c.status !== "descartado");
+  const shownActive = consideredActive.filter((c) => passesFilters(c, activeFilters));
+  const hiddenActive = consideredActive.length - shownActive.length;
 
   return (
     <main className="page">
@@ -1114,7 +1122,11 @@ export default function Home() {
             {evalProgress?.jobId !== activeJob.id &&
               (() => {
                 const pendientes = activeJob.candidates.filter(
-                  (c) => c.cvText && c.scoreStatus !== "done" && c.scoreStatus !== "scoring",
+                  (c) =>
+                    c.cvText &&
+                    c.status !== "descartado" &&
+                    c.scoreStatus !== "done" &&
+                    c.scoreStatus !== "scoring",
                 ).length;
                 return (
                   <div className="eval-scope">
@@ -1309,8 +1321,33 @@ export default function Home() {
                     onStatus={(s) => patchCandidate(activeJob.id, c.id, { status: s })}
                     onViewCv={openCv}
                     onReevaluate={() => reevaluateOne(activeJob.id, c.id)}
+                    onDiscard={() => patchCandidate(activeJob.id, c.id, { status: "descartado" })}
                   />
                 ))}
+              </div>
+            )}
+
+            {discardedActive.length > 0 && (
+              <div className="discarded-box">
+                <button className="linklike" onClick={() => setShowDiscarded((v) => !v)}>
+                  🗑 {showDiscarded ? "Ocultar" : "Ver"} {discardedActive.length} descartado
+                  {discardedActive.length !== 1 ? "s" : ""}
+                </button>
+                {showDiscarded && (
+                  <div className="discarded-list">
+                    {discardedActive.map((c) => (
+                      <div className="discarded-item" key={c.id}>
+                        <span className="discarded-name">{c.name}</span>
+                        <button
+                          className="linklike"
+                          onClick={() => patchCandidate(activeJob.id, c.id, { status: "nuevo" })}
+                        >
+                          ↩ Restaurar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </section>
@@ -1462,6 +1499,7 @@ function CandidateRow({
   onStatus,
   onViewCv,
   onReevaluate,
+  onDiscard,
 }: {
   cand: Candidate;
   rank: number;
@@ -1470,6 +1508,7 @@ function CandidateRow({
   onStatus: (s: Status) => void;
   onViewCv: (c: { name: string; emailUid?: number; cvText?: string }) => void;
   onReevaluate: () => void;
+  onDiscard: () => void;
 }) {
   const ev = cand.evaluation;
   return (
@@ -1501,7 +1540,7 @@ function CandidateRow({
           value={cand.status}
           onChange={(e) => onStatus(e.target.value as Status)}
         >
-          {STATUSES.map((s) => (
+          {STATUSES.filter((s) => s.value !== "descartado").map((s) => (
             <option key={s.value} value={s.value}>
               {s.label}
             </option>
@@ -1512,6 +1551,13 @@ function CandidateRow({
             {ev.recommendation}
           </span>
         )}
+        <button
+          className="icon-btn discard-btn"
+          title="Descartar candidato"
+          onClick={onDiscard}
+        >
+          🗑
+        </button>
         <span className="chevron" onClick={onToggle}>
           ▾
         </span>
