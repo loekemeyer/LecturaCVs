@@ -76,7 +76,18 @@ const RESULT_SCHEMA = {
     },
     distanceKm: {
       type: "number",
-      description: `Distancia aproximada en km (línea recta) desde la ubicación del candidato hasta la planta en ${PLANT_ADDRESS}. -1 si no se puede estimar.`,
+      description:
+        "Distancia aproximada en km (línea recta) desde la ubicación del candidato hasta la sede laboral. -1 si no se puede estimar.",
+    },
+    transitMinutes: {
+      type: "number",
+      description:
+        "Tiempo aproximado de viaje en transporte público (en minutos) desde la dirección del candidato hasta la sede laboral, en un día hábil. -1 si no se puede estimar.",
+    },
+    driveMinutes: {
+      type: "number",
+      description:
+        "Tiempo aproximado de viaje en auto (en minutos) desde la dirección del candidato hasta la sede laboral, en un día hábil. -1 si no se puede estimar.",
     },
   },
   required: [
@@ -89,6 +100,8 @@ const RESULT_SCHEMA = {
     "candidateSex",
     "candidateLocation",
     "distanceKm",
+    "transitMinutes",
+    "driveMinutes",
   ],
   additionalProperties: false,
 } as const;
@@ -101,7 +114,7 @@ Reglas:
 - Ignorás factores irrelevantes y potencialmente discriminatorios (género, edad, foto, nacionalidad, estado civil, religión, apariencia): no deben influir en el puntaje.
 - Los emprendimientos propios, negocios propios o el trabajo freelance/independiente NO cuentan como experiencia laboral ni como antigüedad o estabilidad: ignoralos al puntuar (no suman). Considerá solo el empleo en relación de dependencia. Aclaralo en la justificación cuando corresponda.
 - Al evaluar antigüedad o estabilidad laboral: permanecer alrededor de 2 años o más en un mismo puesto es una BUENA señal (especialmente en personas jóvenes); no lo penalices ni lo trates como mediocre. Lo que SÍ baja el puntaje es el "job hopping": dos o más empleos de menos de 1 año cada uno. Un único trabajo corto no debe penalizar demasiado.
-- Las justificaciones son concretas y citan evidencia del CV cuando existe.
+- Las justificaciones son concretas y citan evidencia del CV cuando existe, pero BREVES: una sola oración corta por criterio (máx. ~20 palabras), sin repetir el nombre del criterio. El resumen, máximo 2 oraciones. Cada fortaleza y cada duda, en pocas palabras (no oraciones largas). La concisión importa para ahorrar.
 - Respondés siempre en español.`;
 
 interface RawResult {
@@ -114,6 +127,8 @@ interface RawResult {
   candidateSex: string;
   candidateLocation: string;
   distanceKm: number;
+  transitMinutes: number;
+  driveMinutes: number;
 }
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
@@ -156,11 +171,31 @@ export interface ScoreCvInput {
   offeredSalary?: string;
   /** Sueldo pretendido por este candidato (texto libre). Por candidato. */
   expectedSalary?: string;
+  /** Dirección de la sede laboral para estimar distancia y tiempos de viaje. Por búsqueda. */
+  plantAddress?: string;
 }
 
-export async function scoreCv(input: ScoreCvInput): Promise<Evaluation> {
-  const { fileBase64, mediaType, cvText, fileName, criteria, jobContext, offeredSalary, expectedSalary } =
-    input;
+// Parámetros de una request de evaluación. Sirve para la API normal (streaming)
+// y para la de lotes/batch (modo económico, -50%).
+type ScoreParams = Anthropic.MessageCreateParamsNonStreaming;
+
+// Arma el pedido a la IA para un CV (sin ejecutarlo). Se reutiliza en ambos modos.
+export function buildScoreParams(input: ScoreCvInput): {
+  params: ScoreParams;
+  validCriteria: Criterion[];
+  fileName: string;
+} {
+  const {
+    fileBase64,
+    mediaType,
+    cvText,
+    fileName,
+    criteria,
+    jobContext,
+    offeredSalary,
+    expectedSalary,
+    plantAddress,
+  } = input;
 
   if (!cvText && (!fileBase64 || !mediaType)) {
     throw new Error("No se recibió ni un archivo ni el texto del CV.");
@@ -172,12 +207,11 @@ export async function scoreCv(input: ScoreCvInput): Promise<Evaluation> {
     throw new Error("Definí al menos un criterio con nombre y peso mayor a cero.");
   }
 
-  const client = new Anthropic(); // toma ANTHROPIC_API_KEY del entorno
+  const sede = plantAddress?.trim() || PLANT_ADDRESS;
 
   const criteriaList = validCriteria
     .map(
-      (c, i) =>
-        `${i + 1}. "${c.name}"${c.description?.trim() ? ` — ${c.description.trim()}` : ""}`,
+      (c, i) => `${i + 1}. "${c.name}"${c.description?.trim() ? ` — ${c.description.trim()}` : ""}`,
     )
     .join("\n");
 
@@ -197,47 +231,44 @@ ${criteriaList}${salaryBlock}
 
 Además, extraé el nombre del postulante, un resumen del perfil, sus fortalezas y las dudas o información faltante respecto del puesto.
 
-Datos adicionales solo para filtrar (NO influyen en el puntaje de los criterios; los uso aparte para organizar la búsqueda):
+Datos adicionales solo para filtrar (NO influyen en el puntaje de los criterios; los uso aparte para organizar la búsqueda). La sede laboral está en: ${sede}.
 - candidateAge: edad en años. Calculala de la fecha de nacimiento si figura; si no figura, devolvé 0.
 - candidateSex: "masculino" o "femenino" si se puede inferir del nombre o los datos; si no, "no especificado".
 - candidateLocation: barrio, localidad o ciudad de residencia del candidato tal como figura en el CV. Vacío si no figura.
-- distanceKm: distancia aproximada en km (en línea recta) desde la ubicación del candidato hasta la planta ubicada en ${PLANT_ADDRESS}. Estimala con tu conocimiento de geografía de la zona. Si no podés estimar la ubicación, devolvé -1.`;
+- distanceKm: distancia aproximada en km (en línea recta) desde la ubicación del candidato hasta la sede laboral. Estimala con tu conocimiento de geografía de la zona. -1 si no podés estimar la ubicación.
+- transitMinutes: si el CV indica la dirección/zona del candidato, estimá el tiempo de viaje en TRANSPORTE PÚBLICO (colectivo, tren o subte; usá la combinación más razonable) en minutos hasta la sede laboral en un día hábil. -1 si no podés estimarlo. IMPORTANTE: si el CV aclara que el candidato tiene movilidad propia o auto, devolvé -1 acá (no hace falta el tiempo en transporte público).
+- driveMinutes: ídem pero en AUTO (en minutos). -1 si no podés estimarlo.`;
 
   const cvBlock: Anthropic.ContentBlockParam = cvText
     ? { type: "text", text: `CV del candidato (texto del correo):\n\n${cvText}` }
     : buildCvBlock(fileBase64 as string, mediaType as string);
 
-  const stream = client.messages.stream({
+  const params: ScoreParams = {
     model: MODEL,
     max_tokens: 16000,
-    // Pensamiento adaptativo: mejora la calidad del análisis del CV.
-    // Solo en modelos que lo soportan (ver SUPPORTS_ADAPTIVE_THINKING arriba).
+    // Pensamiento adaptativo solo en modelos que lo soportan.
     ...(SUPPORTS_ADAPTIVE_THINKING ? { thinking: { type: "adaptive" as const } } : {}),
-    system: SYSTEM_PROMPT,
-    messages: [
-      {
-        role: "user",
-        content: [cvBlock, { type: "text", text: instruction }],
-      },
-    ],
+    // El prompt de sistema es idéntico en todos los CVs: lo marcamos para caché de
+    // prompt (en modelos chicos como Haiku puede no alcanzar el mínimo; no molesta).
+    system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: [cvBlock, { type: "text", text: instruction }] }],
     // Structured output: obliga a la respuesta a cumplir el esquema JSON.
     output_config: { format: { type: "json_schema", schema: RESULT_SCHEMA } },
-  });
+  };
 
-  const message = await stream.finalMessage();
+  return { params, validCriteria, fileName };
+}
 
-  const textBlock = message.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    if (message.stop_reason === "refusal") {
-      throw new Error("La IA no pudo procesar este CV (respuesta rechazada por seguridad).");
-    }
-    throw new Error("La IA no devolvió una respuesta válida para este CV.");
-  }
-
+// Interpreta el texto JSON devuelto por la IA y arma la evaluación final.
+export function parseEvaluation(
+  text: string,
+  validCriteria: Criterion[],
+  fileName: string,
+): Evaluation {
   let raw: RawResult;
   try {
     // Por las dudas, sacamos posibles ``` ```json que algún modelo agregue.
-    const clean = textBlock.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+    const clean = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
     raw = JSON.parse(clean) as RawResult;
   } catch {
     throw new Error("No se pudo interpretar la evaluación devuelta por la IA.");
@@ -277,6 +308,14 @@ Datos adicionales solo para filtrar (NO influyen en el puntaje de los criterios;
   const location = raw.candidateLocation?.trim() || undefined;
   const distanceKm =
     typeof raw.distanceKm === "number" && raw.distanceKm >= 0 ? Math.round(raw.distanceKm) : null;
+  const transitMinutes =
+    typeof raw.transitMinutes === "number" && raw.transitMinutes >= 0
+      ? Math.round(raw.transitMinutes)
+      : null;
+  const driveMinutes =
+    typeof raw.driveMinutes === "number" && raw.driveMinutes >= 0
+      ? Math.round(raw.driveMinutes)
+      : null;
 
   return {
     fileName,
@@ -291,7 +330,27 @@ Datos adicionales solo para filtrar (NO influyen en el puntaje de los criterios;
     sex,
     location,
     distanceKm,
+    transitMinutes,
+    driveMinutes,
   };
+}
+
+export async function scoreCv(input: ScoreCvInput): Promise<Evaluation> {
+  const client = new Anthropic(); // toma ANTHROPIC_API_KEY del entorno
+  const { params, validCriteria, fileName } = buildScoreParams(input);
+
+  const stream = client.messages.stream(params);
+  const message = await stream.finalMessage();
+
+  const textBlock = message.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    if (message.stop_reason === "refusal") {
+      throw new Error("La IA no pudo procesar este CV (respuesta rechazada por seguridad).");
+    }
+    throw new Error("La IA no devolvió una respuesta válida para este CV.");
+  }
+
+  return parseEvaluation(textBlock.text, validCriteria, fileName);
 }
 
 /** Extrae solo el nombre del postulante (rápido y barato, con un modelo liviano). */

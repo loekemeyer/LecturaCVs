@@ -37,6 +37,8 @@ type Job = {
   jobContext: string;
   /** Texto del aviso de la búsqueda (pegado por el usuario). La IA lo usa para sugerir criterios. */
   posting?: string;
+  /** Dirección de la sede laboral de esta búsqueda (para distancia y tiempos de viaje). */
+  plantAddress?: string;
   candidates: Candidate[];
   /** Preferencias de filtrado por búsqueda (edad/sexo/distancia varían según el caso). */
   filters?: JobFilters;
@@ -465,6 +467,7 @@ export default function Home() {
     fd.append("jobContext", job.jobContext || job.title);
     fd.append("offeredSalary", job.offeredSalary);
     fd.append("expectedSalary", cand.expectedSalary);
+    fd.append("plantAddress", job.plantAddress || "");
     // Reintentos ante errores transitorios (rate limit 429, sobrecarga 5xx y
     // cortes de red) con espera creciente: corriendo varios CVs en paralelo, un
     // pico momentáneo no debería marcar el CV como error.
@@ -627,6 +630,7 @@ export default function Home() {
           fd.append("criteria", JSON.stringify(criteriaPayload(job)));
           fd.append("jobContext", job.jobContext || job.title);
           fd.append("offeredSalary", job.offeredSalary);
+          fd.append("plantAddress", job.plantAddress || "");
           const res = await fetch("/api/score", { method: "POST", body: fd });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
@@ -789,6 +793,21 @@ export default function Home() {
               onChange={(e) => patchJob(activeJob.id, { offeredSalary: formatMiles(e.target.value) })}
               style={{ maxWidth: 240 }}
             />
+
+            <label className="field" style={{ marginTop: 12 }}>
+              Dirección de la sede laboral
+            </label>
+            <input
+              type="text"
+              placeholder="Ej: Cervantes 2868, CABA"
+              value={activeJob.plantAddress ?? ""}
+              onChange={(e) => patchJob(activeJob.id, { plantAddress: e.target.value })}
+              style={{ maxWidth: 420, width: "100%" }}
+            />
+            <p className="field-hint">
+              Si el CV indica la dirección del candidato, la IA estima la distancia y el tiempo de
+              viaje hasta acá (en transporte público y en auto).
+            </p>
 
             <details className="criteria-box">
               <summary>Criterios y pesos de esta búsqueda</summary>
@@ -1216,6 +1235,8 @@ function CandidateRow({
             <>
               {(ev.age != null ||
                 ev.distanceKm != null ||
+                ev.transitMinutes != null ||
+                ev.driveMinutes != null ||
                 ev.location ||
                 (ev.sex && ev.sex !== "no especificado")) && (
                 <div className="cand-meta">
@@ -1224,7 +1245,9 @@ function CandidateRow({
                     <span>{ev.sex === "masculino" ? "♂ Masculino" : "♀ Femenino"}</span>
                   )}
                   {ev.location && <span>📍 {ev.location}</span>}
-                  {ev.distanceKm != null && <span>📏 {ev.distanceKm} km de la planta</span>}
+                  {ev.distanceKm != null && <span>📏 {ev.distanceKm} km de la sede</span>}
+                  {ev.transitMinutes != null && <span>🚆 {ev.transitMinutes}′ en transporte</span>}
+                  {ev.driveMinutes != null && <span>🚗 {ev.driveMinutes}′ en auto</span>}
                 </div>
               )}
               {ev.summary && <p className="summary">{ev.summary}</p>}

@@ -117,6 +117,12 @@ label.field {
   color: var(--text-soft);
   margin-bottom: 6px;
 }
+.field-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-soft);
+  line-height: 1.4;
+}
 textarea,
 input[type="text"],
 input[type="number"] {

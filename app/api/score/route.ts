@@ -32,6 +32,7 @@ export async function POST(req: Request) {
   const jobContext = (form.get("jobContext") as string | null) ?? "";
   const offeredSalary = (form.get("offeredSalary") as string | null) ?? "";
   const expectedSalary = (form.get("expectedSalary") as string | null) ?? "";
+  const plantAddress = (form.get("plantAddress") as string | null) ?? "";
 
   let criteria: Criterion[];
   try {
@@ -65,6 +66,7 @@ export async function POST(req: Request) {
       jobContext,
       offeredSalary,
       expectedSalary,
+      plantAddress,
     });
     return Response.json(evaluation);
   } catch (err) {

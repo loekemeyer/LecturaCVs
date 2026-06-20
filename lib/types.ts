@@ -39,4 +39,8 @@ export interface Evaluation {
   sex?: "masculino" | "femenino" | "no especificado";
   location?: string;
   distanceKm?: number | null;
+  /** Tiempo de viaje estimado en transporte público (colectivo/tren), en minutos. null si no se estimó o tiene auto. */
+  transitMinutes?: number | null;
+  /** Tiempo de viaje estimado en auto, en minutos. null si no se estimó. */
+  driveMinutes?: number | null;
 }
