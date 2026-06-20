@@ -234,6 +234,53 @@ textarea {
   margin-top: 14px;
 }
 
+/* control: cuántos CVs analizar */
+.eval-scope {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.eval-scope-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+.eval-scope-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.eval-scope-opt.on {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+.eval-scope-input {
+  width: 110px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.eval-scope-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.eval-scope-hint {
+  font-size: 12.5px;
+  color: var(--text-soft);
+}
+
 /* ---------- dropzone ---------- */
 .dropzone {
   border: 2px dashed var(--border);

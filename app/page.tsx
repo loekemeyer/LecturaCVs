@@ -43,7 +43,10 @@ type Job = {
 };
 
 const STORAGE_KEY = "lecturacvs:ats:v1";
-const CONCURRENCY = 3;
+// Cuántos CVs se analizan en paralelo. Subirlo NO cuesta más (el costo es por
+// tokens, no por tiempo): solo termina antes. Con reintento ante rate limit
+// (ver scoreCvText) podemos correr varios a la vez sin que se marquen como error.
+const CONCURRENCY = 6;
 
 const genId = () =>
   typeof crypto !== "undefined" && crypto.randomUUID
@@ -197,6 +200,10 @@ export default function Home() {
   const [pausing, setPausing] = useState(false);
   const [reevalFor, setReevalFor] = useState<string | null>(null);
   const [genCriteriaFor, setGenCriteriaFor] = useState<string | null>(null);
+  // Cuántos CVs analizar al tocar "Evaluar": por defecto "Todos"; si se destilda,
+  // se usa el número escrito en evalCount.
+  const [evalAll, setEvalAll] = useState(true);
+  const [evalCount, setEvalCount] = useState("");
   const [viewCv, setViewCv] = useState<{
     name: string;
     html?: string;
@@ -448,10 +455,18 @@ export default function Home() {
     fd.append("jobContext", job.jobContext || job.title);
     fd.append("offeredSalary", job.offeredSalary);
     fd.append("expectedSalary", cand.expectedSalary);
-    const res = await fetch("/api/score", { method: "POST", body: fd });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
-    return data as Evaluation;
+    // Reintentos ante rate limit (429) con espera creciente: así podemos correr
+    // más CVs en paralelo sin que un pico de límite los marque como error.
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetch("/api/score", { method: "POST", body: fd });
+      if (res.status === 429 && attempt < 4) {
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        continue;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+      return data as Evaluation;
+    }
   }
 
   // Pide pausar la evaluación en curso. No corta los CVs que ya están en vuelo
@@ -461,10 +476,29 @@ export default function Home() {
     setPausing(true);
   }
 
+  // Decide cuántos analizar según el control "Todos / cantidad" y arranca.
+  function startEvaluation(jobId: string) {
+    if (evalAll) {
+      evaluateJob(jobId, {});
+      return;
+    }
+    const n = parseInt(evalCount, 10);
+    if (!n || n < 1) {
+      showToast("Escribí cuántos CVs querés analizar, o tildá «Todos».");
+      return;
+    }
+    evaluateJob(jobId, { limit: n });
+  }
+
   // reevaluateAll=false (uso normal y "retomar"): evalúa solo los que faltan
   // (pendientes o con error), dejando intactos los ya evaluados.
   // reevaluateAll=true (al cambiar criterios): re-evalúa a todos.
-  async function evaluateJob(jobId: string, reevaluateAll = false) {
+  // limit: tope de CVs a procesar en esta corrida (los más arriba de la lista).
+  async function evaluateJob(
+    jobId: string,
+    opts: { reevaluateAll?: boolean; limit?: number } = {},
+  ) {
+    const { reevaluateAll = false, limit } = opts;
     const job = jobsRef.current.find((j) => j.id === jobId);
     if (!job) return;
     setReevalFor(null);
@@ -472,9 +506,10 @@ export default function Home() {
       showToast("Definí al menos un criterio con peso para esta búsqueda.");
       return;
     }
-    const targets = job.candidates.filter(
+    let targets = job.candidates.filter(
       (c) => c.cvText && c.scoreStatus !== "scoring" && (reevaluateAll || c.scoreStatus !== "done"),
     );
+    if (typeof limit === "number" && limit > 0) targets = targets.slice(0, limit);
     if (!targets.length) {
       showToast(
         reevaluateAll
@@ -824,6 +859,39 @@ export default function Home() {
               </div>
             </details>
 
+            {evalProgress?.jobId !== activeJob.id &&
+              (() => {
+                const pendientes = activeJob.candidates.filter(
+                  (c) => c.cvText && c.scoreStatus !== "done" && c.scoreStatus !== "scoring",
+                ).length;
+                return (
+                  <div className="eval-scope">
+                    <span className="eval-scope-label">¿Cuántos CVs analizar?</span>
+                    <label className={`eval-scope-opt${evalAll ? " on" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={evalAll}
+                        onChange={(e) => setEvalAll(e.target.checked)}
+                      />
+                      Todos
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      className="eval-scope-input"
+                      placeholder="cantidad"
+                      value={evalCount}
+                      onFocus={() => setEvalAll(false)}
+                      onChange={(e) => {
+                        setEvalCount(e.target.value);
+                        setEvalAll(false);
+                      }}
+                    />
+                    <span className="eval-scope-hint">{pendientes} sin evaluar</span>
+                  </div>
+                );
+              })()}
+
             <div className="btn-row">
               {evalProgress?.jobId === activeJob.id ? (
                 <>
@@ -841,8 +909,8 @@ export default function Home() {
                   </button>
                 </>
               ) : (
-                <button className="btn btn-primary" onClick={() => evaluateJob(activeJob.id)}>
-                  Evaluar candidatos
+                <button className="btn btn-primary" onClick={() => startEvaluation(activeJob.id)}>
+                  {evalAll ? "Evaluar candidatos" : `Evaluar ${evalCount || "…"} candidatos`}
                 </button>
               )}
               <button className="btn btn-ghost" onClick={() => fileRef.current?.click()}>
@@ -891,7 +959,7 @@ export default function Home() {
                   className="btn btn-primary"
                   onClick={() => {
                     setReevalFor(null);
-                    evaluateJob(activeJob.id, true);
+                    evaluateJob(activeJob.id, { reevaluateAll: true });
                   }}
                 >
                   Re-evaluar candidatos
