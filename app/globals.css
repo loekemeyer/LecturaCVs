@@ -92,7 +92,7 @@ body {
 }
 .card-hint {
   color: var(--text-faint);
-  font-size: 13px;
+  font-size: 14px;
   margin: 0 0 18px;
 }
 .step {
@@ -103,7 +103,7 @@ body {
   border-radius: 50%;
   background: var(--primary-soft);
   color: var(--primary-dark);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   margin-right: 8px;
   vertical-align: 1px;
@@ -112,14 +112,14 @@ body {
 /* ---------- form fields ---------- */
 label.field {
   display: block;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-soft);
   margin-bottom: 6px;
 }
 .field-hint {
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-soft);
   line-height: 1.4;
 }
@@ -173,7 +173,7 @@ label.field {
   letter-spacing: -0.02em;
 }
 .brand-tag {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-faint);
   white-space: nowrap;
   overflow: hidden;
@@ -190,7 +190,7 @@ label.field {
   border-radius: 999px;
   padding: 9px 16px;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   box-shadow: 0 3px 10px rgba(58, 79, 214, 0.28);
@@ -216,7 +216,7 @@ label.field {
 }
 .sede-select {
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 10px;
@@ -257,7 +257,7 @@ label.field {
   min-width: 0;
 }
 .sede-flabel {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-soft);
 }
@@ -310,7 +310,7 @@ label.field {
   font-size: 14px;
 }
 .sede-done-addr {
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--text-soft);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -347,7 +347,7 @@ label.field {
   width: 100%;
   text-align: left;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   padding: 9px 12px;
   background: none;
   border: none;
@@ -363,7 +363,7 @@ label.field {
 }
 .addr-loading {
   padding: 9px 12px;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-soft);
 }
 .profile-jobs {
@@ -433,7 +433,7 @@ textarea {
   position: relative;
 }
 .criterion .weight-pct {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-faint);
   text-align: center;
   margin-top: 4px;
@@ -522,7 +522,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-soft);
   padding: 5px 12px;
@@ -547,7 +547,7 @@ textarea {
 }
 .salary-dash {
   color: var(--text-soft);
-  font-size: 13px;
+  font-size: 14px;
 }
 .result-actions {
   display: flex;
@@ -594,7 +594,7 @@ textarea {
   border: 1.5px solid var(--border);
   background: var(--surface);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-soft);
   cursor: pointer;
@@ -671,7 +671,7 @@ select.status-select.cal-descartado {
 }
 .calif-chip {
   font: inherit;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -693,7 +693,7 @@ select.status-select.cal-descartado {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-soft);
 }
@@ -706,7 +706,14 @@ select.status-select.cal-descartado {
   gap: 10px;
   margin-bottom: 8px;
 }
-/* Pasos guía dentro de una búsqueda */
+/* Pasos guía dentro de una búsqueda: "Paso N" + descripción a la derecha */
+.paso-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 26px 0 8px;
+}
 .paso {
   display: inline-block;
   font-size: 19px;
@@ -715,11 +722,36 @@ select.status-select.cal-descartado {
   background: var(--primary-soft);
   border-radius: 10px;
   padding: 6px 16px;
-  margin: 26px 0 8px;
   letter-spacing: -0.01em;
+  flex-shrink: 0;
+}
+.paso-desc {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+}
+/* Paso 3 vive dentro del summary (desplegable de criterios) */
+.criteria-box > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  list-style: none;
+}
+.criteria-box > summary::-webkit-details-marker {
+  display: none;
+}
+.criteria-box > summary::after {
+  content: "▸";
+  margin-left: auto;
+  color: var(--text-soft);
+  font-size: 16px;
+}
+.criteria-box[open] > summary::after {
+  content: "▾";
 }
 .eval-total {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
   background: var(--surface-2);
@@ -737,7 +769,7 @@ select.status-select.cal-descartado {
   margin-top: 14px;
 }
 .eval-scope-label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-soft);
 }
@@ -745,7 +777,7 @@ select.status-select.cal-descartado {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   padding: 5px 10px;
   border: 1px solid var(--border);
@@ -760,7 +792,7 @@ select.status-select.cal-descartado {
 .eval-scope-input {
   width: 110px;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px 10px;
@@ -771,7 +803,7 @@ select.status-select.cal-descartado {
   box-shadow: 0 0 0 3px var(--primary-soft);
 }
 .eval-scope-hint {
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--text-soft);
 }
 
@@ -835,7 +867,7 @@ select.status-select.cal-descartado {
   gap: 6px;
 }
 .fileitem .name .sub {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -851,13 +883,13 @@ select.status-select.cal-descartado {
 .fileitem .salary-input {
   width: 160px;
   padding: 7px 10px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .salary-input:disabled {
   opacity: 0.6;
 }
 .status {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 999px;
@@ -896,7 +928,7 @@ select.status-select.cal-descartado {
   cursor: pointer;
 }
 .rank {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text-faint);
   width: 26px;
@@ -935,14 +967,14 @@ select.status-select.cal-descartado {
   letter-spacing: -0.01em;
 }
 .result-id .file {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .badge {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   padding: 4px 10px;
   border-radius: 999px;
@@ -976,7 +1008,7 @@ select.status-select.cal-descartado {
   border-top: 1px solid var(--border);
 }
 .result-body h4 {
-  font-size: 12px;
+  font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-faint);
@@ -993,7 +1025,7 @@ select.status-select.cal-descartado {
   gap: 6px;
 }
 .tag {
-  font-size: 12.5px;
+  font-size: 14px;
   padding: 4px 9px;
   border-radius: 8px;
   border: 1px solid var(--border);
@@ -1017,7 +1049,7 @@ select.status-select.cal-descartado {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-size: 13.5px;
+  font-size: 14px;
 }
 .crit-top .cname {
   font-weight: 600;
@@ -1052,7 +1084,7 @@ select.status-select.cal-descartado {
   background: var(--red);
 }
 .crit .why {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-soft);
   margin: 0;
 }
@@ -1094,7 +1126,7 @@ select.status-select.cal-descartado {
   margin-bottom: 4px;
 }
 .results-toolbar .count {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-faint);
 }
 .cand-search {
@@ -1108,12 +1140,12 @@ select.status-select.cal-descartado {
   background: var(--surface);
 }
 .cand-search-icon {
-  font-size: 13px;
+  font-size: 14px;
   opacity: 0.7;
 }
 .cand-search input {
   font: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   border: 0;
   outline: none;
   background: transparent;
@@ -1126,14 +1158,14 @@ select.status-select.cal-descartado {
 }
 .cand-notes-label {
   display: block;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   margin-bottom: 5px;
 }
 .cand-notes-input {
   width: 100%;
   font: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   padding: 9px 11px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1159,12 +1191,12 @@ select.status-select.cal-descartado {
   margin-bottom: 10px;
 }
 .list-actions-count {
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--text-faint);
 }
 .btn-sm {
   padding: 6px 11px;
-  font-size: 13px;
+  font-size: 14px;
 }
 /* candidato repetido en varias búsquedas */
 .dup-flag {
@@ -1172,7 +1204,7 @@ select.status-select.cal-descartado {
   align-items: center;
   gap: 2px;
   margin-left: 7px;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
   color: #b45309;
   background: #fff7ed;
@@ -1182,7 +1214,7 @@ select.status-select.cal-descartado {
   vertical-align: middle;
 }
 .dup-note {
-  font-size: 13px;
+  font-size: 14px;
   color: #92400e;
   background: #fffbeb;
   border: 1px solid #fde68a;
@@ -1271,7 +1303,7 @@ select.status-select.cal-descartado {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
   white-space: nowrap;
@@ -1279,7 +1311,7 @@ select.status-select.cal-descartado {
 .confirm-btn {
   font: inherit;
   font-weight: 800;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1;
   width: 26px;
   height: 26px;
@@ -1299,7 +1331,7 @@ select.status-select.cal-descartado {
 .undo-btn {
   font: inherit;
   font-weight: 700;
-  font-size: 12.5px;
+  font-size: 14px;
   white-space: nowrap;
   padding: 5px 11px;
   border-radius: 999px;
@@ -1323,7 +1355,7 @@ select.status-select.cal-descartado {
   border: 1.5px solid #fcd34d;
   background: #fff;
   color: #b45309;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -1338,7 +1370,7 @@ select.status-select.cal-descartado {
 .tab {
   flex-shrink: 0;
   font: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-soft);
   background: var(--surface);
@@ -1361,7 +1393,7 @@ select.status-select.cal-descartado {
   color: #fff;
 }
 .tab-count {
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
   background: rgba(0, 0, 0, 0.08);
   border-radius: 999px;
@@ -1458,7 +1490,7 @@ select.status-select.cal-descartado {
   outline: none;
 }
 .job-date {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-faint);
   flex-shrink: 0;
 }
@@ -1472,7 +1504,7 @@ select.status-select.cal-descartado {
 }
 .criteria-box > summary {
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-soft);
 }
@@ -1487,14 +1519,14 @@ select.status-select.cal-descartado {
 }
 .ai-criteria-hint {
   margin: 0 0 8px;
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--text-soft);
   line-height: 1.4;
 }
 .posting-input {
   width: 100%;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 10px;
@@ -1511,7 +1543,7 @@ select.status-select.cal-descartado {
 
 .status-select {
   font: inherit;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 600;
   border-radius: 999px;
   border: 1px solid var(--border);
@@ -1558,7 +1590,7 @@ select.status-select.cal-descartado {
 }
 .fchip {
   font: inherit;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 600;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -1585,7 +1617,7 @@ select.status-select.cal-descartado {
   border-radius: 12px;
 }
 .cf-title {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text-soft);
   text-transform: uppercase;
@@ -1595,19 +1627,19 @@ select.status-select.cal-descartado {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-soft);
 }
 .cf-field input[type="number"] {
   width: 70px;
   padding: 6px 8px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .cf-field select {
   width: auto;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1624,7 +1656,7 @@ select.status-select.cal-descartado {
 }
 .cf-clear {
   font: inherit;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 600;
   margin-left: auto;
   border: 1px solid var(--border);
@@ -1639,7 +1671,7 @@ select.status-select.cal-descartado {
   color: var(--primary-dark);
 }
 .cf-note {
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--text-faint);
   margin: 8px 2px 0;
 }
@@ -1652,7 +1684,7 @@ select.status-select.cal-descartado {
   margin-top: 14px;
 }
 .cand-meta > span {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-soft);
   background: var(--surface-2);
@@ -1673,11 +1705,11 @@ select.status-select.cal-descartado {
   align-items: center;
   padding: 10px 4px;
   border-top: 1px solid var(--border);
-  font-size: 13.5px;
+  font-size: 14px;
   min-width: 520px;
 }
 .dash-head {
-  font-size: 11px;
+  font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-faint);
@@ -1692,7 +1724,7 @@ select.status-select.cal-descartado {
 }
 .dash-sub {
   display: block;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--text-faint);
 }
@@ -1733,7 +1765,7 @@ select.status-select.cal-descartado {
   transition: width 0.3s ease;
 }
 .progress-label {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-soft);
   margin-top: 6px;
   font-weight: 600;
@@ -1800,7 +1832,7 @@ select.status-select.cal-descartado {
   white-space: pre-wrap;
   word-break: break-word;
   font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.55;
   color: var(--text);
 }
@@ -1823,7 +1855,7 @@ select.status-select.cal-descartado {
   margin-bottom: 14px;
 }
 .scan-label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-soft);
 }
@@ -1858,7 +1890,7 @@ select.status-select.cal-descartado {
   white-space: nowrap;
 }
 .aviso-count {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-soft);
 }
 .aviso-row .btn {
@@ -1899,17 +1931,17 @@ select.status-select.cal-descartado {
 }
 .auth-sub {
   color: var(--text-soft);
-  font-size: 13.5px;
+  font-size: 14px;
   margin: 0 0 18px;
 }
 .auth-hint {
   color: var(--text-soft);
-  font-size: 13px;
+  font-size: 14px;
   margin: 12px 0;
 }
 .auth-err {
   color: #b91c1c;
-  font-size: 13px;
+  font-size: 14px;
   margin-top: 12px;
 }
 .auth-code {
@@ -1931,7 +1963,7 @@ select.status-select.cal-descartado {
 .auth-resend {
   display: inline-block;
   margin-top: 12px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .btn-block {
   width: 100%;
@@ -1948,7 +1980,7 @@ select.status-select.cal-descartado {
   gap: 10px;
 }
 .spend-badge {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: #166534;
   background: #f0fdf4;
@@ -1981,7 +2013,7 @@ select.status-select.cal-descartado {
 .cmp-grid > div {
   border-bottom: 1px solid var(--border);
   padding: 8px 10px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .cmp-rowlabel {
   font-weight: 700;

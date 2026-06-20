@@ -1337,10 +1337,10 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="paso">Paso 1</div>
-            <label className="field" style={{ marginTop: 4 }}>
-              Sueldo ofrecido por la empresa
-            </label>
+            <div className="paso-row">
+              <span className="paso">Paso 1</span>
+              <span className="paso-desc">Sueldo ofrecido por la empresa</span>
+            </div>
             <div className="salary-mode">
               <label className={`salary-opt${!activeJob.salaryRange ? " on" : ""}`}>
                 <input
@@ -1394,10 +1394,10 @@ export default function Home() {
               />
             )}
 
-            <div className="paso">Paso 2</div>
-            <label className="field" style={{ marginTop: 4 }}>
-              Sede laboral de esta búsqueda
-            </label>
+            <div className="paso-row">
+              <span className="paso">Paso 2</span>
+              <span className="paso-desc">Sede laboral de esta búsqueda</span>
+            </div>
             {sedes.length === 0 ? (
               <p className="field-hint">
                 Todavía no cargaste sedes.{" "}
@@ -1435,9 +1435,11 @@ export default function Home() {
               </>
             )}
 
-            <div className="paso">Paso 3</div>
             <details className="criteria-box">
-              <summary>Criterios y pesos de esta búsqueda</summary>
+              <summary>
+                <span className="paso">Paso 3</span>
+                <span className="paso-desc">Criterios y pesos de esta búsqueda</span>
+              </summary>
               <div style={{ marginTop: 12 }}>
                 <div className="ai-criteria">
                   <p className="ai-criteria-hint">
@@ -1543,7 +1545,10 @@ export default function Home() {
               </div>
             </details>
 
-            <div className="paso">Paso 4 · Evaluar</div>
+            <div className="paso-row">
+              <span className="paso">Paso 4</span>
+              <span className="paso-desc">Evaluar candidatos</span>
+            </div>
 
             {evalProgress?.jobId !== activeJob.id &&
               (() => {
