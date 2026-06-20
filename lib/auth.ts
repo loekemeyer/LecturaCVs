@@ -26,9 +26,9 @@ export function authRequired(): boolean {
   return !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
 }
 
-/** A dónde se manda el código de acceso. */
+/** A dónde se manda el código de acceso (fijo; se puede sobreescribir con AUTH_EMAIL). */
 export function authEmail(): string {
-  return process.env.AUTH_EMAIL || process.env.GMAIL_USER || "";
+  return process.env.AUTH_EMAIL || "loekemeyer.n8n@gmail.com";
 }
 
 function hmac(data: string): string {
