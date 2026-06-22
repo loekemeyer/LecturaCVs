@@ -1898,6 +1898,12 @@ select.status-select.cal-descartado {
 .aviso-row .btn {
   flex-shrink: 0;
 }
+.aviso-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 
 /* ---------- acceso por código (login) ---------- */
 .auth-screen {

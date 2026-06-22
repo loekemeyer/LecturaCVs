@@ -1962,21 +1962,39 @@ export default function Home() {
                           </span>
                         </div>
                         {existing ? (
-                          existing.id === activeTab ? (
-                            <button className="btn btn-open" disabled>
-                              Abierto
-                            </button>
-                          ) : (
+                          <div className="aviso-actions">
                             <button
-                              className="btn btn-ghost"
-                              onClick={() => {
-                                setActiveTab(existing.id);
-                                setScanOpen(false);
-                              }}
+                              className="btn btn-primary"
+                              onClick={() => importAviso(a)}
+                              disabled={importingTitle !== null}
+                              title="Vuelve a leer Gmail y trae solo los CVs nuevos de este aviso (los que ya tenés no se duplican)."
                             >
-                              Abrir
+                              {importingTitle === a.title ? (
+                                <>
+                                  <span className="spinner" /> Buscando nuevos
+                                  {importProg ? ` ${importProg.done}/${importProg.total}` : "…"}
+                                </>
+                              ) : (
+                                "🔄 Traer nuevos"
+                              )}
                             </button>
-                          )
+                            {existing.id === activeTab ? (
+                              <button className="btn btn-open" disabled>
+                                Abierto
+                              </button>
+                            ) : (
+                              <button
+                                className="btn btn-ghost"
+                                onClick={() => {
+                                  setActiveTab(existing.id);
+                                  setScanOpen(false);
+                                }}
+                                disabled={importingTitle !== null}
+                              >
+                                Abrir
+                              </button>
+                            )}
+                          </div>
                         ) : (
                           <button
                             className="btn btn-primary"

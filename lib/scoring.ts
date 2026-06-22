@@ -232,7 +232,18 @@ ${companyValues.trim()}
 Reflejá explícitamente en el resumen, las fortalezas y las dudas qué tan bien encaja el candidato con estos valores.`
     : "";
 
-  const instruction = `Contexto del puesto:
+  // Fecha de hoy (del servidor, en el momento de evaluar) para que la IA calcule
+  // bien antigüedades, duraciones de empleo y edad. Es dinámica: cada evaluación
+  // usa la fecha real de ese día, así no queda desactualizada nunca.
+  const fechaHoy = new Date().toLocaleDateString("es-AR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+
+  const instruction = `La fecha de hoy es ${fechaHoy}. Tomá SIEMPRE esta fecha como el "presente" para calcular cualquier antigüedad, la duración de cada empleo y la edad del candidato. No uses ninguna otra fecha de referencia: si un puesto empezó en una fecha y sigue vigente, su duración va desde esa fecha hasta hoy.
+
+Contexto del puesto:
 ${jobContext.trim() || "(No especificado.)"}
 
 Evaluá el CV adjunto según estos criterios. Devolvé un objeto por criterio, en el mismo orden y con el mismo nombre exacto que aparece acá:
@@ -241,7 +252,7 @@ ${criteriaList}${salaryBlock}${valuesBlock}
 Además, extraé el nombre del postulante, un resumen del perfil, sus fortalezas y las dudas o información faltante respecto del puesto.
 
 Datos adicionales solo para filtrar (NO influyen en el puntaje de los criterios; los uso aparte para organizar la búsqueda). La sede laboral está en: ${sede}.
-- candidateAge: edad en años. Calculala de la fecha de nacimiento si figura; si no figura, devolvé 0.
+- candidateAge: edad en años a la fecha de hoy indicada arriba. Calculala de la fecha de nacimiento si figura; si no figura, devolvé 0.
 - candidateSex: "masculino" o "femenino" si se puede inferir del nombre o los datos; si no, "no especificado".
 - candidateLocation: barrio, localidad o ciudad de residencia del candidato tal como figura en el CV. Vacío si no figura.
 - distanceKm: distancia aproximada en km (en línea recta) desde la ubicación del candidato hasta la sede laboral. Estimala con tu conocimiento de geografía de la zona. -1 si no podés estimar la ubicación.
