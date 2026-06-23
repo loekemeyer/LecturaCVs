@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createClient } from "@supabase/supabase-js";
 import type { Criterion, Evaluation } from "@/lib/types";
 
 type CriterionDraft = { id: string; name: string; weight: number; description: string };
@@ -20,6 +21,8 @@ type Candidate = {
   status: Status;
   /** Calificación por color (triage). Si falta, se trata como "sincalificar". */
   calificacion?: Calificacion;
+  /** Etapa del tablero (columna kanban) en la que está. Vacío = todavía no está en el tablero. */
+  stageId?: string;
   /** Notas libres del reclutador (entrevista, llamado, etc.). */
   notes?: string;
   scoreStatus: ScoreStatus;
@@ -39,6 +42,9 @@ type Sede = { id: string; label: string; address: string; confirmed?: boolean };
 
 /** Aviso encontrado en Gmail durante el escaneo (antes de levantar los CVs). */
 type Aviso = { title: string; count: number; uids: number[]; firstDate: string };
+
+/** Etapa (columna) del tablero kanban de una búsqueda. */
+type Stage = { id: string; label: string };
 
 type Job = {
   id: string;
@@ -60,10 +66,19 @@ type Job = {
   candidates: Candidate[];
   /** Preferencias de filtrado por búsqueda (edad/sexo/distancia varían según el caso). */
   filters?: JobFilters;
+  /** Columnas (etapas) del tablero kanban de esta búsqueda. Si falta, se usan las de por defecto. */
+  stages?: Stage[];
 };
 
 const STORAGE_KEY = "lecturacvs:ats:v1";
 const TOKEN_KEY = "lecturacvs:token";
+
+// Cliente de Supabase SOLO para escuchar la "señal" de cambios en tiempo real.
+// Usa la anon key (pública); por RLS no puede leer datos personales, solo la señal.
+const RT_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const RT_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const realtimeClient =
+  RT_URL && RT_ANON ? createClient(RT_URL, RT_ANON, { auth: { persistSession: false } }) : null;
 // Cuántos CVs se analizan en paralelo. Subirlo NO cuesta más (el costo es por
 // tokens, no por tiempo): solo termina antes. Con reintento ante rate limit
 // (ver scoreCvText) podemos correr varios a la vez sin que se marquen como error.
@@ -126,6 +141,16 @@ const califLabel = (v: Calificacion) =>
   CALIFICACIONES.find((x) => x.value === v)?.label ?? "Sin calificar";
 
 const DEFAULT_FILTERS: JobFilters = { ageMin: "", ageMax: "", sex: "todos", maxDistance: "" };
+
+// Etapas (columnas) por defecto del tablero kanban, como en ZonaJobs.
+const DEFAULT_STAGES: Stage[] = [
+  { id: "preseleccionados", label: "Preseleccionados" },
+  { id: "contactados", label: "Contactados" },
+  { id: "entrevistados", label: "Entrevistados" },
+  { id: "contratados", label: "Contratados" },
+  { id: "descartados", label: "Descartados" },
+];
+const stagesOf = (job: Job): Stage[] => (job.stages?.length ? job.stages : DEFAULT_STAGES);
 
 // ¿Hay algún filtro activo? (sirve para avisar cuántos candidatos quedan ocultos).
 function filtersActive(f: JobFilters): boolean {
@@ -301,6 +326,8 @@ export default function Home() {
   // Comparador: ids de candidatos seleccionados + modal abierto.
   const [compareSel, setCompareSel] = useState<Set<string>>(new Set());
   const [compareOpen, setCompareOpen] = useState(false);
+  // Vista de la búsqueda: lista (ranking) o tablero (kanban por etapas).
+  const [boardView, setBoardView] = useState(false);
 
   const jobsRef = useRef(jobs);
   useEffect(() => {
@@ -319,56 +346,89 @@ export default function Home() {
   // cada candidato. Es un ref (no estado) para que vean el valor más reciente sin
   // depender de re-renders.
   const cancelEvalRef = useRef(false);
-  // Para avisar una sola vez si falla el guardado local (memoria del navegador).
-  const saveWarnedRef = useRef(false);
   // Última pestaña que no es el perfil, para volver al cerrar "Mi perfil".
   const lastTabRef = useRef("");
+  // Id único de esta pestaña: sirve para ignorar en tiempo real los cambios que
+  // hago yo mismo (y no refrescar en eco).
+  const clientIdRef = useRef<string>(genId());
+  // Última "foto" sincronizada con la nube (para subir solo lo que cambió).
+  const syncedRef = useRef<{
+    searches: Map<string, string>;
+    cands: Map<string, string>;
+    settings: string;
+  } | null>(null);
+  const syncTimerRef = useRef<number | undefined>(undefined);
+  // Datos viejos de este navegador detectados al entrar (para ofrecer subirlos).
+  const [localMigration, setLocalMigration] = useState<{
+    jobs: Job[];
+    sedes: Sede[];
+    companyValues: string;
+    count: number;
+  } | null>(null);
 
-  // Cargar
+  // Cargar desde la nube (una sola vez, cuando ya hay sesión).
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed.jobs)) {
-          // Limpiamos restos de "Nueva búsqueda" vacías (de cuando existía el
-          // botón manual): solo las que no tienen ningún candidato.
-          const cleaned = (parsed.jobs as Job[]).filter(
-            (j) => !(j.title === "Nueva búsqueda" && (j.candidates?.length ?? 0) === 0),
-          );
-          setJobs(cleaned);
-          // Al entrar, arrancamos sin ninguna búsqueda abierta (pantalla limpia).
+    if (!authed || loaded) return;
+    (async () => {
+      try {
+        const res = await dataApi({ action: "load" });
+        if (res.ok) {
+          const data = await res.json();
+          const jobsArr: Job[] = Array.isArray(data.jobs)
+            ? (data.jobs as Job[]).filter(
+                (j) => !(j.title === "Nueva búsqueda" && (j.candidates?.length ?? 0) === 0),
+              )
+            : [];
+          const sedesArr: Sede[] = Array.isArray(data.sedes) ? data.sedes : [];
+          const cv: string = typeof data.companyValues === "string" ? data.companyValues : "";
+          setJobs(jobsArr);
           setActiveTab("");
+          setSedes(sedesArr);
+          setCompanyValues(cv);
+          syncedRef.current = buildSnapshot(jobsArr, sedesArr, cv);
+          // Nube vacía + datos viejos en este navegador => ofrecemos subirlos.
+          if (jobsArr.length === 0) maybeOfferLocalMigration();
         }
-        if (Array.isArray(parsed.sedes)) setSedes(parsed.sedes);
-        if (typeof parsed.companyValues === "string") setCompanyValues(parsed.companyValues);
+      } catch {
+        /* ignorar */
+      } finally {
+        setLoaded(true);
       }
-    } catch {
-      /* ignorar */
-    }
-    setLoaded(true);
-  }, []);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
 
-  // Guardar
+  // Guardar: sube a la nube SOLO lo que cambió (con un retardo corto para agrupar
+  // varias ediciones seguidas en menos llamadas).
   useEffect(() => {
     if (!loaded) return;
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ jobs, activeTab, sedes, companyValues }),
-      );
-      saveWarnedRef.current = false;
-    } catch {
-      // Suele ser cuota llena (muchos CVs con texto + evaluaciones). Avisamos una
-      // sola vez para que no se pierdan datos sin que el usuario se entere.
-      if (!saveWarnedRef.current) {
-        saveWarnedRef.current = true;
-        showToast(
-          "No se pudo guardar en el navegador (puede estar lleno de tantos CVs). Para no perder datos, conviene evaluar en tandas más chicas.",
-        );
-      }
-    }
-  }, [jobs, activeTab, sedes, companyValues, loaded]);
+    window.clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = window.setTimeout(() => {
+      void syncToCloud();
+    }, 600);
+    return () => window.clearTimeout(syncTimerRef.current);
+  }, [jobs, sedes, companyValues, loaded]);
+
+  // Tiempo real: cuando otro usuario cambia algo, refrescamos desde la nube.
+  useEffect(() => {
+    if (!authed || !realtimeClient) return;
+    const ch = realtimeClient
+      .channel("lcv-signal")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "realtime_signal" },
+        (payload) => {
+          const who = (payload.new as { client_id?: string })?.client_id;
+          if (who && who === clientIdRef.current) return; // cambio mío: ya lo tengo
+          void refetchFromCloud();
+        },
+      )
+      .subscribe();
+    return () => {
+      realtimeClient.removeChannel(ch);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -397,6 +457,137 @@ export default function Home() {
     setActiveTab("");
     setCodeInput("");
     setAuthErr("");
+  }
+
+  // ---------- sincronización con la nube (Supabase) ----------
+  async function dataApi(payload: Record<string, unknown>): Promise<Response> {
+    const res = await fetch("/api/data", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ ...payload, clientId: clientIdRef.current }),
+    });
+    if (res.status === 401) onAuthFail();
+    return res;
+  }
+
+  // "Foto" del estado para comparar contra lo último subido (clave -> JSON).
+  function buildSnapshot(jobsArr: Job[], sedesArr: Sede[], cv: string) {
+    const searches = new Map<string, string>();
+    const cands = new Map<string, string>();
+    for (const j of jobsArr) {
+      const { candidates, ...meta } = j;
+      searches.set(j.id, JSON.stringify(meta));
+      for (const c of candidates) cands.set(c.id, JSON.stringify({ s: j.id, c }));
+    }
+    return { searches, cands, settings: JSON.stringify({ sedes: sedesArr, cv }) };
+  }
+
+  // Sube a la nube SOLO lo que cambió desde la última sincronización.
+  async function syncToCloud() {
+    const jobsArr = jobsRef.current;
+    const cur = buildSnapshot(jobsArr, sedesRef.current, companyValuesRef.current);
+    const prev = syncedRef.current;
+    syncedRef.current = cur; // marcamos ya, para no reenviar en paralelo
+    try {
+      const jobById = new Map(jobsArr.map((j) => [j.id, j]));
+      // Búsquedas nuevas o cambiadas (sin candidatos).
+      for (const [id, json] of cur.searches) {
+        if (!prev || prev.searches.get(id) !== json) {
+          const j = jobById.get(id);
+          if (!j) continue;
+          const { candidates: _drop, ...meta } = j;
+          await dataApi({ action: "upsertSearch", search: meta });
+        }
+      }
+      // Búsquedas borradas.
+      if (prev) {
+        for (const id of prev.searches.keys()) {
+          if (!cur.searches.has(id)) await dataApi({ action: "deleteSearch", id });
+        }
+      }
+      // Candidatos nuevos o cambiados, agrupados por búsqueda.
+      const changedBySearch = new Map<string, Candidate[]>();
+      for (const j of jobsArr) {
+        for (const c of j.candidates) {
+          const json = JSON.stringify({ s: j.id, c });
+          if (!prev || prev.cands.get(c.id) !== json) {
+            const list = changedBySearch.get(j.id) ?? [];
+            list.push(c);
+            changedBySearch.set(j.id, list);
+          }
+        }
+      }
+      for (const [searchId, list] of changedBySearch) {
+        await dataApi({ action: "upsertCandidates", searchId, candidates: list });
+      }
+      // Ajustes (sedes + valores de empresa).
+      if (!prev || prev.settings !== cur.settings) {
+        await dataApi({
+          action: "saveSettings",
+          sedes: sedesRef.current,
+          companyValues: companyValuesRef.current,
+        });
+      }
+    } catch {
+      // Si algo falla, reintentamos en el próximo cambio (no perdemos el dato local).
+      syncedRef.current = prev;
+    }
+  }
+
+  // Trae todo desde la nube y refresca la "foto" (para no re-subir lo que llegó).
+  async function refetchFromCloud() {
+    try {
+      const res = await dataApi({ action: "load" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const jobsArr: Job[] = Array.isArray(data.jobs) ? data.jobs : [];
+      const sedesArr: Sede[] = Array.isArray(data.sedes) ? data.sedes : [];
+      const cv: string = typeof data.companyValues === "string" ? data.companyValues : "";
+      syncedRef.current = buildSnapshot(jobsArr, sedesArr, cv);
+      setJobs(jobsArr);
+      setSedes(sedesArr);
+      setCompanyValues(cv);
+    } catch {
+      /* ignorar */
+    }
+  }
+
+  // Detecta datos viejos guardados en ESTE navegador (de la versión sin nube).
+  function maybeOfferLocalMigration() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) return;
+      const parsed = JSON.parse(saved);
+      const jobsArr: Job[] = Array.isArray(parsed.jobs) ? parsed.jobs : [];
+      if (jobsArr.length === 0) return;
+      const count = jobsArr.reduce((n, j) => n + (j.candidates?.length ?? 0), 0);
+      setLocalMigration({
+        jobs: jobsArr,
+        sedes: Array.isArray(parsed.sedes) ? parsed.sedes : [],
+        companyValues: typeof parsed.companyValues === "string" ? parsed.companyValues : "",
+        count,
+      });
+    } catch {
+      /* ignorar */
+    }
+  }
+
+  // Sube a la nube los datos de este navegador y recarga desde la nube.
+  async function uploadLocalToCloud() {
+    if (!localMigration) return;
+    const res = await dataApi({
+      action: "migrate",
+      jobs: localMigration.jobs,
+      sedes: localMigration.sedes,
+      companyValues: localMigration.companyValues,
+    });
+    if (res.ok) {
+      setLocalMigration(null);
+      await refetchFromCloud();
+      showToast("Listo: tus datos quedaron en la nube y ahora se ven en cualquier PC.");
+    } else {
+      showToast("No se pudieron subir los datos. Reintentá en un momento.");
+    }
   }
 
   // Chequeo inicial: ¿hace falta código? ¿el token guardado sigue válido?
@@ -475,7 +666,17 @@ export default function Home() {
   // cuenta regresiva en su fila (visible aunque el filtro lo ocultaría). Así
   // cualquier toque sin querer tiene vuelta atrás.
   function setCalifWithUndo(jobId: string, candId: string, prev: Calificacion, next: Calificacion) {
-    patchCandidate(jobId, candId, { calificacion: next });
+    const extra: Partial<Candidate> = { calificacion: next };
+    // Al preseleccionar, el candidato entra al tablero en la primera etapa.
+    if (next === "preseleccionado") {
+      const job = jobsRef.current.find((j) => j.id === jobId);
+      const cand = job?.candidates.find((c) => c.id === candId);
+      if (job && cand && !cand.stageId) {
+        extra.stageId = stagesOf(job)[0].id;
+        if (!job.stages?.length) patchJob(jobId, { stages: DEFAULT_STAGES });
+      }
+    }
+    patchCandidate(jobId, candId, extra);
     setGraceUndo((g) => ({ ...g, [candId]: { prev, until: Date.now() + GRACE_MS } }));
     if (graceTimers.current[candId]) window.clearTimeout(graceTimers.current[candId]);
     graceTimers.current[candId] = window.setTimeout(() => {
@@ -518,6 +719,71 @@ export default function Home() {
   // ---------- helpers de estado ----------
   function patchJob(jobId: string, patch: Partial<Job>) {
     setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, ...patch } : j)));
+  }
+
+  // ---------- tablero (kanban) ----------
+  function moveCandidateToStage(jobId: string, candId: string, stageId: string) {
+    patchCandidate(jobId, candId, { stageId });
+  }
+  function removeFromBoard(jobId: string, candId: string) {
+    patchCandidate(jobId, candId, { stageId: undefined });
+  }
+  function addStage(jobId: string) {
+    const name = window.prompt("Nombre de la nueva etapa:");
+    if (!name?.trim()) return;
+    const job = jobsRef.current.find((j) => j.id === jobId);
+    if (!job) return;
+    patchJob(jobId, { stages: [...stagesOf(job), { id: genId(), label: name.trim() }] });
+  }
+  function renameStage(jobId: string, stageId: string, current: string) {
+    const name = window.prompt("Nuevo nombre de la etapa:", current);
+    if (!name?.trim()) return;
+    const job = jobsRef.current.find((j) => j.id === jobId);
+    if (!job) return;
+    patchJob(jobId, {
+      stages: stagesOf(job).map((s) => (s.id === stageId ? { ...s, label: name.trim() } : s)),
+    });
+  }
+  function deleteStage(jobId: string, stageId: string) {
+    const job = jobsRef.current.find((j) => j.id === jobId);
+    if (!job) return;
+    const stages = stagesOf(job);
+    if (stages.length <= 1) {
+      showToast("Tiene que quedar al menos una etapa en el tablero.");
+      return;
+    }
+    const inStage = job.candidates.filter((c) => c.stageId === stageId).length;
+    if (
+      !window.confirm(
+        `¿Borrar esta etapa?${
+          inStage > 0 ? ` Sus ${inStage} candidato(s) salen del tablero (no se borran).` : ""
+        }`,
+      )
+    )
+      return;
+    setJobs((prev) =>
+      prev.map((j) =>
+        j.id !== jobId
+          ? j
+          : {
+              ...j,
+              stages: stagesOf(j).filter((s) => s.id !== stageId),
+              candidates: j.candidates.map((c) =>
+                c.stageId === stageId ? { ...c, stageId: undefined } : c,
+              ),
+            },
+      ),
+    );
+  }
+  function moveStage(jobId: string, stageId: string, dir: -1 | 1) {
+    const job = jobsRef.current.find((j) => j.id === jobId);
+    if (!job) return;
+    const stages = [...stagesOf(job)];
+    const i = stages.findIndex((s) => s.id === stageId);
+    const k = i + dir;
+    if (i < 0 || k < 0 || k >= stages.length) return;
+    [stages[i], stages[k]] = [stages[k], stages[i]];
+    patchJob(jobId, { stages });
   }
 
   // ---------- sedes (perfil) ----------
@@ -1134,6 +1400,30 @@ export default function Home() {
     }
   }
 
+  // Imprime el CV que se está viendo: abre el contenido (correo con foto o texto)
+  // en una ventana aparte y dispara la impresión del navegador. Desde ahí se puede
+  // imprimir en papel o "Guardar como PDF".
+  function printCv() {
+    if (!viewCv || viewCv.loading) return;
+    const esc = (s: string) =>
+      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const title = esc(viewCv.name || "CV");
+    const body = viewCv.html
+      ? viewCv.html
+      : `<pre style="white-space:pre-wrap;font-family:system-ui,'Segoe UI',Arial,sans-serif;font-size:13px;line-height:1.5;padding:24px;margin:0;">${esc(
+          viewCv.text || "",
+        )}</pre>`;
+    const w = window.open("", "_blank", "width=820,height=920");
+    if (!w) {
+      showToast("Permití las ventanas emergentes para poder imprimir.");
+      return;
+    }
+    w.document.write(
+      `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${title}</title></head><body onload="setTimeout(function(){window.focus();window.print();},300)">${body}</body></html>`,
+    );
+    w.document.close();
+  }
+
   // ---------- derivados ----------
   const activeJob = jobs.find((j) => j.id === activeTab) || null;
   const totalCandidates = useMemo(
@@ -1293,6 +1583,25 @@ export default function Home() {
       </header>
 
       {toast && <div className="toast">{toast}</div>}
+
+      {localMigration && (
+        <div className="reeval-banner">
+          <span>
+            Este navegador tiene datos guardados de antes ({localMigration.jobs.length} búsqueda
+            {localMigration.jobs.length !== 1 ? "s" : ""}, {localMigration.count} candidato
+            {localMigration.count !== 1 ? "s" : ""}) y la nube está vacía. ¿Los subís para verlos en
+            cualquier PC?
+          </span>
+          <div className="reeval-actions">
+            <button className="btn btn-primary" onClick={uploadLocalToCloud}>
+              ⬆ Subir mis datos a la nube
+            </button>
+            <button className="btn btn-ghost" onClick={() => setLocalMigration(null)}>
+              Ahora no
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Entrada (nada elegido): botón grande. No se muestran los avisos todavía. */}
       {activeTab === "" && (
@@ -1707,7 +2016,7 @@ export default function Home() {
             <div className="results-toolbar">
               <h2 style={{ margin: 0 }}>Candidatos</h2>
               <span className="count">{activeJob.candidates.length} en total</span>
-              {activeJob.candidates.length > 0 && (
+              {!boardView && activeJob.candidates.length > 0 && (
                 <div className="cand-search">
                   <span className="cand-search-icon">🔎</span>
                   <input
@@ -1718,8 +2027,36 @@ export default function Home() {
                   />
                 </div>
               )}
+              <div className="view-toggle">
+                <button
+                  className={`vt-btn${!boardView ? " on" : ""}`}
+                  onClick={() => setBoardView(false)}
+                >
+                  ☰ Lista
+                </button>
+                <button
+                  className={`vt-btn${boardView ? " on" : ""}`}
+                  onClick={() => setBoardView(true)}
+                >
+                  📋 Tablero
+                </button>
+              </div>
             </div>
 
+            {boardView ? (
+              <Board
+                job={activeJob}
+                stages={stagesOf(activeJob)}
+                onMove={(candId, stageId) => moveCandidateToStage(activeJob.id, candId, stageId)}
+                onRemove={(candId) => removeFromBoard(activeJob.id, candId)}
+                onAddStage={() => addStage(activeJob.id)}
+                onRenameStage={(sid, cur) => renameStage(activeJob.id, sid, cur)}
+                onDeleteStage={(sid) => deleteStage(activeJob.id, sid)}
+                onMoveStage={(sid, dir) => moveStage(activeJob.id, sid, dir)}
+                onViewCv={openCv}
+              />
+            ) : (
+              <>
             <div className="calif-filters">
               <button
                 className={`calif-chip${califFilter === "todos" ? " on" : ""}`}
@@ -1884,6 +2221,8 @@ export default function Home() {
                 ))}
               </div>
             )}
+              </>
+            )}
           </section>
         </>
       )}
@@ -2026,9 +2365,16 @@ export default function Home() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <strong>{viewCv.name}</strong>
-              <button className="icon-btn" aria-label="Cerrar" onClick={() => setViewCv(null)}>
-                ×
-              </button>
+              <div className="modal-head-actions">
+                {!viewCv.loading && (
+                  <button className="btn btn-ghost btn-sm" onClick={printCv} title="Imprimir o guardar como PDF">
+                    🖨 Imprimir
+                  </button>
+                )}
+                <button className="icon-btn" aria-label="Cerrar" onClick={() => setViewCv(null)}>
+                  ×
+                </button>
+              </div>
             </div>
             {viewCv.loading ? (
               <div className="modal-body">
@@ -2897,6 +3243,158 @@ function Profile({
         </p>
       </section>
     </>
+  );
+}
+
+// Tablero kanban de una búsqueda: columnas por etapa, tarjetas que se arrastran
+// entre etapas (o se mueven con el menú), y etapas personalizables.
+function Board({
+  job,
+  stages,
+  onMove,
+  onRemove,
+  onAddStage,
+  onRenameStage,
+  onDeleteStage,
+  onMoveStage,
+  onViewCv,
+}: {
+  job: Job;
+  stages: Stage[];
+  onMove: (candId: string, stageId: string) => void;
+  onRemove: (candId: string) => void;
+  onAddStage: () => void;
+  onRenameStage: (stageId: string, current: string) => void;
+  onDeleteStage: (stageId: string) => void;
+  onMoveStage: (stageId: string, dir: -1 | 1) => void;
+  onViewCv: (c: { name: string; emailUid?: number; cvText?: string }) => void;
+}) {
+  const onBoard = job.candidates.filter((c) => c.stageId);
+  const byStage = (sid: string) =>
+    onBoard
+      .filter((c) => c.stageId === sid)
+      .sort((a, b) => (b.evaluation?.overallScore ?? -1) - (a.evaluation?.overallScore ?? -1));
+  return (
+    <div className="board">
+      {onBoard.length === 0 && (
+        <p className="board-hint">
+          Todavía no hay candidatos en el tablero. En la vista <b>Lista</b>, marcá a alguien como{" "}
+          <b>Preseleccionado</b> para que entre acá; después arrastrá su tarjeta entre las etapas (o
+          usá el menú «mover»).
+        </p>
+      )}
+      <div className="board-cols">
+        {stages.map((st, idx) => {
+          const list = byStage(st.id);
+          return (
+            <div
+              key={st.id}
+              className="board-col"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const id = e.dataTransfer.getData("text/cand");
+                if (id) onMove(id, st.id);
+              }}
+            >
+              <div className="board-col-head">
+                <span className="board-col-title">{st.label}</span>
+                <span className="board-col-count">{list.length}</span>
+                <div className="board-col-actions">
+                  <button
+                    className="icon-btn"
+                    title="Mover etapa a la izquierda"
+                    onClick={() => onMoveStage(st.id, -1)}
+                    disabled={idx === 0}
+                  >
+                    ‹
+                  </button>
+                  <button
+                    className="icon-btn"
+                    title="Mover etapa a la derecha"
+                    onClick={() => onMoveStage(st.id, 1)}
+                    disabled={idx === stages.length - 1}
+                  >
+                    ›
+                  </button>
+                  <button
+                    className="icon-btn"
+                    title="Renombrar etapa"
+                    onClick={() => onRenameStage(st.id, st.label)}
+                  >
+                    ✎
+                  </button>
+                  <button
+                    className="icon-btn"
+                    title="Borrar etapa"
+                    onClick={() => onDeleteStage(st.id)}
+                  >
+                    🗑
+                  </button>
+                </div>
+              </div>
+              <div className="board-col-body">
+                {list.map((c) => (
+                  <div
+                    key={c.id}
+                    className="board-card"
+                    draggable
+                    onDragStart={(e) => e.dataTransfer.setData("text/cand", c.id)}
+                  >
+                    <div className="board-card-top">
+                      {c.evaluation && (
+                        <span className={`score-chip ${scoreClass(c.evaluation.overallScore)}`}>
+                          {toTen(c.evaluation.overallScore)}
+                        </span>
+                      )}
+                      <span className="board-card-name">{c.name}</span>
+                    </div>
+                    <div className="board-card-meta">
+                      {c.evaluation?.age != null ? `${c.evaluation.age} años · ` : ""}
+                      {c.evaluation?.distanceKm != null ? `${c.evaluation.distanceKm} km · ` : ""}
+                      {c.expectedSalary ? `pretende ${c.expectedSalary}` : ""}
+                    </div>
+                    <div className="board-card-actions">
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() =>
+                          onViewCv({ name: c.name, emailUid: c.emailUid, cvText: c.cvText })
+                        }
+                      >
+                        📄 CV
+                      </button>
+                      <select
+                        className="board-move"
+                        value={c.stageId}
+                        onChange={(e) => onMove(c.id, e.target.value)}
+                        title="Mover a otra etapa"
+                      >
+                        {stages.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        className="icon-btn"
+                        title="Sacar del tablero"
+                        onClick={() => onRemove(c.id)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {list.length === 0 && <div className="board-empty">Soltá acá una tarjeta</div>}
+              </div>
+            </div>
+          );
+        })}
+        <button className="board-add" onClick={onAddStage} title="Agregar una etapa nueva">
+          ➕ Agregar etapa
+        </button>
+      </div>
+    </div>
   );
 }
 

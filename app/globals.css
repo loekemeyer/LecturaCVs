@@ -1827,6 +1827,158 @@ select.status-select.cal-descartado {
   border-bottom: 1px solid var(--border);
   font-size: 16px;
 }
+.modal-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ---------- tablero kanban ---------- */
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-left: auto;
+}
+.vt-btn {
+  border: none;
+  background: #fff;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-soft, #555);
+}
+.vt-btn.on {
+  background: var(--accent, #4f46e5);
+  color: #fff;
+}
+.board {
+  margin-top: 12px;
+}
+.board-hint {
+  color: var(--text-soft, #666);
+  font-size: 14px;
+  margin: 0 0 12px;
+}
+.board-cols {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  align-items: flex-start;
+}
+.board-col {
+  flex: 0 0 260px;
+  background: #f1f5f9;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  max-height: 72vh;
+}
+.board-col-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.board-col-title {
+  font-weight: 600;
+  font-size: 14px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-col-count {
+  background: #e2e8f0;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 12px;
+  color: #475569;
+}
+.board-col-actions {
+  display: flex;
+  gap: 2px;
+}
+.board-col-actions .icon-btn {
+  font-size: 12px;
+  padding: 2px 4px;
+}
+.board-col-body {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.board-card {
+  background: #fff;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  padding: 8px;
+  cursor: grab;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.board-card:active {
+  cursor: grabbing;
+}
+.board-card-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.board-card-name {
+  font-weight: 600;
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-card-meta {
+  font-size: 12px;
+  color: var(--text-soft, #666);
+  margin-top: 4px;
+  min-height: 14px;
+}
+.board-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.board-move {
+  font-size: 12px;
+  padding: 2px 4px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+  max-width: 110px;
+}
+.board-empty {
+  color: #94a3b8;
+  font-size: 12px;
+  text-align: center;
+  padding: 10px 0;
+  border: 1px dashed var(--border, #e2e8f0);
+  border-radius: 8px;
+}
+.board-add {
+  flex: 0 0 200px;
+  background: transparent;
+  border: 1px dashed var(--border, #cbd5e1);
+  border-radius: 10px;
+  padding: 12px;
+  cursor: pointer;
+  color: var(--text-soft, #555);
+}
+.board-add:hover {
+  background: #f8fafc;
+}
 .modal-body {
   margin: 0;
   padding: 18px;
