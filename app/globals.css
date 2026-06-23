@@ -2153,6 +2153,11 @@ select.status-select.cal-descartado {
 .spend-badge:hover {
   background: #dcfce7;
 }
+.spend-badge.icon-only {
+  padding: 5px 9px;
+  font-size: 16px;
+  line-height: 1;
+}
 
 /* ---------- detalle de gasto estimado ---------- */
 .cost-detail {

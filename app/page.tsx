@@ -1594,17 +1594,21 @@ export default function Home() {
           </div>
         </div>
         <div className="appbar-right">
-          {evaluatedCount > 0 && (
-            <button
-              type="button"
-              className="spend-badge"
-              onClick={() => setCostDetailOpen(true)}
-              title="Tocá para ver el detalle del gasto estimado (por día y por aviso)"
-            >
-              💵 {evaluatedCount} CV{evaluatedCount !== 1 ? "s" : ""}
-              {costPerCv > 0 ? ` · ~US$${(evaluatedCount * costPerCv).toFixed(2)}` : ""}
-            </button>
-          )}
+          <button
+            type="button"
+            className={`spend-badge${evaluatedCount > 0 ? "" : " icon-only"}`}
+            onClick={() => setCostDetailOpen(true)}
+            title="Ver el gasto estimado (por día y por aviso)"
+          >
+            💵
+            {evaluatedCount > 0 && (
+              <>
+                {" "}
+                {evaluatedCount} CV{evaluatedCount !== 1 ? "s" : ""}
+                {costPerCv > 0 ? ` · ~US$${(evaluatedCount * costPerCv).toFixed(2)}` : ""}
+              </>
+            )}
+          </button>
           <button
             className={`profile-btn${activeTab === "perfil" ? " active" : ""}`}
             onClick={toggleProfile}
