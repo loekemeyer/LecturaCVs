@@ -53,12 +53,14 @@ body {
 }
 .job-main {
   grid-column: 1;
+  grid-row: 1;
   min-width: 0;
 }
 /* La configuración (criterios/sueldo/sede/Evaluar) queda fija a la derecha y, si es
    larga, scrollea sola sin taparse ni empujar la página. */
 .job-config {
   grid-column: 2;
+  grid-row: 1;
   position: sticky;
   top: 16px;
   max-height: calc(100vh - 32px);
