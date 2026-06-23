@@ -2176,6 +2176,11 @@ select.status-select.cal-descartado {
   font-size: 13px;
   margin: 6px 0 14px;
 }
+.cost-empty {
+  color: var(--text-soft, #888);
+  font-size: 13px;
+  margin: 0 0 14px;
+}
 .cost-table {
   display: flex;
   flex-direction: column;

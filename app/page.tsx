@@ -196,6 +196,21 @@ function shortDate(iso: string): string {
   const d = new Date(iso);
   return isNaN(d.getTime()) ? "" : `${d.getDate()}/${d.getMonth() + 1}`;
 }
+const MESES = [
+  "enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+];
+// "2026-06" -> "junio 2026"; "sin-fecha" -> "Sin fecha".
+function fmtMonth(ym: string): string {
+  if (ym === "sin-fecha") return "Sin fecha";
+  const [y, m] = ym.split("-");
+  return `${MESES[Number(m) - 1] ?? m} ${y}`;
+}
+// "2026-06-23" -> "23/06/2026"; "sin-fecha" -> "Sin fecha".
+function fmtDay(d: string): string {
+  if (d === "sin-fecha") return "Sin fecha";
+  return `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
+}
 function hace(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
@@ -1436,6 +1451,7 @@ export default function Home() {
   // (Es un estimado: cantidad de CVs evaluados × costo por CV del modelo.)
   const costStats = useMemo(() => {
     const dayMap = new Map<string, number>();
+    const monthMap = new Map<string, number>();
     const jobArr: { title: string; count: number }[] = [];
     let total = 0;
     for (const j of jobs) {
@@ -1445,16 +1461,25 @@ export default function Home() {
         jc++;
         total++;
         const iso = c.evaluatedAt || c.date || "";
-        const day = iso.slice(0, 10) || "sin-fecha";
+        const day = iso ? iso.slice(0, 10) : "sin-fecha";
+        const month = iso ? iso.slice(0, 7) : "sin-fecha";
         dayMap.set(day, (dayMap.get(day) ?? 0) + 1);
+        monthMap.set(month, (monthMap.get(month) ?? 0) + 1);
       }
       if (jc > 0) jobArr.push({ title: j.title || "(sin título)", count: jc });
     }
+    const currentMonth = new Date().toISOString().slice(0, 7);
     const byJob = jobArr.sort((a, b) => b.count - a.count);
-    const byDay = [...dayMap.entries()]
+    // Detalle por día, SOLO del mes en curso (más reciente primero).
+    const byDayCurrent = [...dayMap.entries()]
+      .filter(([day]) => day.startsWith(currentMonth))
       .map(([day, count]) => ({ day, count }))
-      .sort((a, b) => (a.day < b.day ? 1 : -1)); // más reciente primero
-    return { total, byJob, byDay };
+      .sort((a, b) => (a.day < b.day ? 1 : -1));
+    // Gasto por mes (más reciente primero).
+    const byMonth = [...monthMap.entries()]
+      .map(([month, count]) => ({ month, count }))
+      .sort((a, b) => (a.month < b.month ? 1 : -1));
+    return { total, byJob, byDayCurrent, byMonth, currentMonth };
   }, [jobs]);
 
   const activeJob = jobs.find((j) => j.id === activeTab) || null;
@@ -2461,6 +2486,25 @@ export default function Home() {
                 <p className="empty">Todavía no evaluaste ningún CV.</p>
               ) : (
                 <>
+                  <h4>Por día — {fmtMonth(costStats.currentMonth)}</h4>
+                  {costStats.byDayCurrent.length === 0 ? (
+                    <p className="cost-empty">Sin CVs evaluados este mes.</p>
+                  ) : (
+                    <div className="cost-table">
+                      {costStats.byDayCurrent.map((r) => (
+                        <div className="cost-row" key={r.day}>
+                          <span className="cost-row-label">{fmtDay(r.day)}</span>
+                          <span className="cost-row-count">
+                            {r.count} CV{r.count !== 1 ? "s" : ""}
+                          </span>
+                          <span className="cost-row-usd">
+                            {costPerCv > 0 ? `~US$${(r.count * costPerCv).toFixed(2)}` : "—"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <h4>Por aviso</h4>
                   <div className="cost-table">
                     {costStats.byJob.map((r) => (
@@ -2474,25 +2518,17 @@ export default function Home() {
                     ))}
                   </div>
 
-                  <h4>Por día</h4>
+                  <h4>Por mes</h4>
                   <div className="cost-table">
-                    {costStats.byDay.map((r) => {
-                      const label =
-                        r.day === "sin-fecha"
-                          ? "Sin fecha"
-                          : `${r.day.slice(8, 10)}/${r.day.slice(5, 7)}/${r.day.slice(0, 4)}`;
-                      return (
-                        <div className="cost-row" key={r.day}>
-                          <span className="cost-row-label">{label}</span>
-                          <span className="cost-row-count">
-                            {r.count} CV{r.count !== 1 ? "s" : ""}
-                          </span>
-                          <span className="cost-row-usd">
-                            {costPerCv > 0 ? `~US$${(r.count * costPerCv).toFixed(2)}` : "—"}
-                          </span>
-                        </div>
-                      );
-                    })}
+                    {costStats.byMonth.map((r) => (
+                      <div className="cost-row" key={r.month}>
+                        <span className="cost-row-label">{fmtMonth(r.month)}</span>
+                        <span className="cost-row-count">{r.count} CV{r.count !== 1 ? "s" : ""}</span>
+                        <span className="cost-row-usd">
+                          {costPerCv > 0 ? `~US$${(r.count * costPerCv).toFixed(2)}` : "—"}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </>
               )}
