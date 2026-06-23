@@ -39,9 +39,42 @@ body {
 }
 
 .page {
-  max-width: 920px;
+  max-width: 1240px;
   margin: 0 auto;
   padding: 32px 20px 80px;
+}
+
+/* ---------- vista de búsqueda en dos columnas (CVs izq. + configuración der.) ---------- */
+.job-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 16px;
+  align-items: start;
+}
+.job-main {
+  grid-column: 1;
+  min-width: 0;
+}
+/* La configuración (criterios/sueldo/sede/Evaluar) queda fija a la derecha y, si es
+   larga, scrollea sola sin taparse ni empujar la página. */
+.job-config {
+  grid-column: 2;
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+/* En pantallas chicas (celular/tablet) se apilan y scrollean normal. */
+@media (max-width: 900px) {
+  .job-layout {
+    display: block;
+  }
+  .job-config {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    margin-bottom: 16px;
+  }
 }
 
 /* ---------- header ---------- */

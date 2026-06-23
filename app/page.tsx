@@ -1722,8 +1722,8 @@ export default function Home() {
 
       {/* vista de una búsqueda */}
       {activeJob && (
-        <>
-          <section className="card">
+        <div className="job-layout">
+          <section className="card job-config">
             <div className="job-head">
               <input
                 className="job-title"
@@ -2053,6 +2053,7 @@ export default function Home() {
             )}
           </section>
 
+          <div className="job-main">
           {reevalFor === activeJob.id && (
             <div className="reeval-banner">
               <span>
@@ -2075,7 +2076,7 @@ export default function Home() {
             </div>
           )}
 
-          <section className="card">
+          <section className="card job-list">
             <div className="results-toolbar">
               <h2 style={{ margin: 0 }}>Candidatos</h2>
               <span className="count">{activeJob.candidates.length} en total</span>
@@ -2287,7 +2288,8 @@ export default function Home() {
               </>
             )}
           </section>
-        </>
+          </div>
+        </div>
       )}
 
       {scanOpen && (
