@@ -2148,6 +2148,65 @@ select.status-select.cal-descartado {
   border-radius: 999px;
   padding: 5px 10px;
   white-space: nowrap;
+  cursor: pointer;
+}
+.spend-badge:hover {
+  background: #dcfce7;
+}
+
+/* ---------- detalle de gasto estimado ---------- */
+.cost-detail {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.cost-total {
+  font-size: 18px;
+}
+.cost-total-usd {
+  color: #166534;
+  font-weight: 700;
+}
+.cost-note {
+  color: var(--text-soft, #666);
+  font-size: 13px;
+  margin: 6px 0 14px;
+}
+.cost-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.cost-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border, #eef2f7);
+}
+.cost-row:last-child {
+  border-bottom: none;
+}
+.cost-row-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cost-row-count {
+  color: var(--text-soft, #555);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.cost-row-usd {
+  font-weight: 700;
+  color: #166534;
+  white-space: nowrap;
+  min-width: 78px;
+  text-align: right;
 }
 
 /* ---------- comparador ---------- */

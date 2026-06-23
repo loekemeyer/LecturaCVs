@@ -40,6 +40,7 @@ create table if not exists public.candidates (
   score_status text default 'pending',
   error text,
   evaluation jsonb,
+  evaluated_at text,
   updated_at timestamptz not null default now()
 );
 create index if not exists candidates_search_id_idx on public.candidates(search_id);

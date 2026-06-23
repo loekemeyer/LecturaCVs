@@ -42,6 +42,7 @@ interface CandLike {
   scoreStatus?: string;
   error?: string;
   evaluation?: unknown;
+  evaluatedAt?: string;
 }
 
 const nowIso = () => new Date().toISOString();
@@ -103,6 +104,7 @@ function candToRow(searchId: string, c: CandLike): Row {
     score_status: c.scoreStatus ?? "pending",
     error: c.error ?? null,
     evaluation: c.evaluation ?? null,
+    evaluated_at: c.evaluatedAt ?? null,
     updated_at: nowIso(),
   };
 }
@@ -123,6 +125,7 @@ function rowToCand(r: Row): CandLike {
     scoreStatus: (r.score_status as string) ?? "pending",
     error: (r.error as string) ?? undefined,
     evaluation: r.evaluation ?? undefined,
+    evaluatedAt: (r.evaluated_at as string) ?? undefined,
   };
 }
 

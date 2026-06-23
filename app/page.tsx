@@ -25,6 +25,8 @@ type Candidate = {
   stageId?: string;
   /** Notas libres del reclutador (entrevista, llamado, etc.). */
   notes?: string;
+  /** Fecha/hora (ISO) en que se evaluó este CV con la IA. Sirve para el detalle de gasto por día. */
+  evaluatedAt?: string;
   scoreStatus: ScoreStatus;
   error?: string;
   evaluation?: Evaluation;
@@ -328,6 +330,8 @@ export default function Home() {
   const [compareOpen, setCompareOpen] = useState(false);
   // Vista de la búsqueda: lista (ranking) o tablero (kanban por etapas).
   const [boardView, setBoardView] = useState(false);
+  // Pantalla con el detalle del gasto estimado (por día y por aviso).
+  const [costDetailOpen, setCostDetailOpen] = useState(false);
 
   const jobsRef = useRef(jobs);
   useEffect(() => {
@@ -1248,6 +1252,7 @@ export default function Home() {
             evaluation: ev,
             scoreStatus: "done",
             name: ev.candidateName || c.name,
+            evaluatedAt: new Date().toISOString(),
           });
           setEvaluatedCount((n) => n + 1);
         } catch (e) {
@@ -1308,6 +1313,7 @@ export default function Home() {
         evaluation: ev,
         scoreStatus: "done",
         name: ev.candidateName || cand.name,
+        evaluatedAt: new Date().toISOString(),
       });
       setEvaluatedCount((n) => n + 1);
     } catch (e) {
@@ -1355,6 +1361,7 @@ export default function Home() {
             evaluation: data,
             scoreStatus: "done",
             name: data.candidateName || file.name,
+            evaluatedAt: new Date().toISOString(),
           });
           setEvaluatedCount((n) => n + 1);
         } catch (e) {
@@ -1425,6 +1432,31 @@ export default function Home() {
   }
 
   // ---------- derivados ----------
+  // Detalle del gasto estimado: CVs evaluados agrupados por aviso y por día.
+  // (Es un estimado: cantidad de CVs evaluados × costo por CV del modelo.)
+  const costStats = useMemo(() => {
+    const dayMap = new Map<string, number>();
+    const jobArr: { title: string; count: number }[] = [];
+    let total = 0;
+    for (const j of jobs) {
+      let jc = 0;
+      for (const c of j.candidates) {
+        if (!c.evaluation) continue;
+        jc++;
+        total++;
+        const iso = c.evaluatedAt || c.date || "";
+        const day = iso.slice(0, 10) || "sin-fecha";
+        dayMap.set(day, (dayMap.get(day) ?? 0) + 1);
+      }
+      if (jc > 0) jobArr.push({ title: j.title || "(sin título)", count: jc });
+    }
+    const byJob = jobArr.sort((a, b) => b.count - a.count);
+    const byDay = [...dayMap.entries()]
+      .map(([day, count]) => ({ day, count }))
+      .sort((a, b) => (a.day < b.day ? 1 : -1)); // más reciente primero
+    return { total, byJob, byDay };
+  }, [jobs]);
+
   const activeJob = jobs.find((j) => j.id === activeTab) || null;
   const totalCandidates = useMemo(
     () => jobs.reduce((n, j) => n + j.candidates.length, 0),
@@ -1563,13 +1595,15 @@ export default function Home() {
         </div>
         <div className="appbar-right">
           {evaluatedCount > 0 && (
-            <span
+            <button
+              type="button"
               className="spend-badge"
-              title="Gasto estimado de IA en esta sesión (aproximado)"
+              onClick={() => setCostDetailOpen(true)}
+              title="Tocá para ver el detalle del gasto estimado (por día y por aviso)"
             >
               💵 {evaluatedCount} CV{evaluatedCount !== 1 ? "s" : ""}
               {costPerCv > 0 ? ` · ~US$${(evaluatedCount * costPerCv).toFixed(2)}` : ""}
-            </span>
+            </button>
           )}
           <button
             className={`profile-btn${activeTab === "perfil" ? " active" : ""}`}
@@ -2385,6 +2419,80 @@ export default function Home() {
             ) : (
               <pre className="modal-body">{viewCv.text}</pre>
             )}
+          </div>
+        </div>
+      )}
+
+      {costDetailOpen && (
+        <div className="modal-overlay" onClick={() => setCostDetailOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <strong>💵 Detalle de gasto estimado</strong>
+              <button
+                className="icon-btn"
+                aria-label="Cerrar"
+                onClick={() => setCostDetailOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body cost-detail">
+              <div className="cost-total">
+                <b>{costStats.total}</b> CV{costStats.total !== 1 ? "s" : ""} evaluado
+                {costStats.total !== 1 ? "s" : ""}
+                {costPerCv > 0 && (
+                  <span className="cost-total-usd">
+                    {" "}
+                    · ~US${(costStats.total * costPerCv).toFixed(2)}
+                  </span>
+                )}
+              </div>
+              <p className="cost-note">
+                Es un <b>estimado</b>: cantidad de CVs evaluados × costo por CV del modelo
+                {costPerCv > 0 ? ` (~US$${costPerCv.toFixed(4)} c/u)` : ""}. No es la factura real de
+                Anthropic.
+              </p>
+
+              {costStats.total === 0 ? (
+                <p className="empty">Todavía no evaluaste ningún CV.</p>
+              ) : (
+                <>
+                  <h4>Por aviso</h4>
+                  <div className="cost-table">
+                    {costStats.byJob.map((r) => (
+                      <div className="cost-row" key={r.title}>
+                        <span className="cost-row-label">{r.title}</span>
+                        <span className="cost-row-count">{r.count} CV{r.count !== 1 ? "s" : ""}</span>
+                        <span className="cost-row-usd">
+                          {costPerCv > 0 ? `~US$${(r.count * costPerCv).toFixed(2)}` : "—"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <h4>Por día</h4>
+                  <div className="cost-table">
+                    {costStats.byDay.map((r) => {
+                      const label =
+                        r.day === "sin-fecha"
+                          ? "Sin fecha"
+                          : `${r.day.slice(8, 10)}/${r.day.slice(5, 7)}/${r.day.slice(0, 4)}`;
+                      return (
+                        <div className="cost-row" key={r.day}>
+                          <span className="cost-row-label">{label}</span>
+                          <span className="cost-row-count">
+                            {r.count} CV{r.count !== 1 ? "s" : ""}
+                          </span>
+                          <span className="cost-row-usd">
+                            {costPerCv > 0 ? `~US$${(r.count * costPerCv).toFixed(2)}` : "—"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
