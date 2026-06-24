@@ -1956,16 +1956,29 @@ select.status-select.cal-descartado {
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 8px;
   padding: 8px;
-  cursor: grab;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-}
-.board-card:active {
-  cursor: grabbing;
 }
 .board-card-top {
   display: flex;
   align-items: center;
   gap: 6px;
+  cursor: grab;
+  user-select: none;
+  padding: 2px;
+  margin: -2px;
+  border-radius: 6px;
+}
+.board-card-top:hover {
+  background: #f1f5f9;
+}
+.board-card-top:active {
+  cursor: grabbing;
+}
+.board-grip {
+  color: #94a3b8;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 .board-card-name {
   font-weight: 600;

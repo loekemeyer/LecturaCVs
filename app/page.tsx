@@ -3716,13 +3716,16 @@ function Board({
               </div>
               <div className="board-col-body">
                 {list.map((c) => (
-                  <div
-                    key={c.id}
-                    className="board-card"
-                    draggable
-                    onDragStart={(e) => e.dataTransfer.setData("text/cand", c.id)}
-                  >
-                    <div className="board-card-top">
+                  <div key={c.id} className="board-card">
+                    <div
+                      className="board-card-top"
+                      draggable
+                      onDragStart={(e) => e.dataTransfer.setData("text/cand", c.id)}
+                      title="Arrastrá desde acá para mover a otra etapa"
+                    >
+                      <span className="board-grip" aria-hidden="true">
+                        ⠿
+                      </span>
                       {c.evaluation && (
                         <span className={`score-chip ${scoreClass(c.evaluation.overallScore)}`}>
                           {toTen(c.evaluation.overallScore)}
