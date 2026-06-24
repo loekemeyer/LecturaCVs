@@ -180,6 +180,7 @@ export async function POST(req: Request) {
         jobs,
         sedes: settings?.sedes ?? [],
         companyValues: (settings?.company_values as string) ?? "",
+        bookingUrl: (settings?.booking_url as string) ?? "",
       });
     }
 
@@ -226,6 +227,7 @@ export async function POST(req: Request) {
         id: "default",
         sedes: body.sedes ?? [],
         company_values: (body.companyValues as string) ?? "",
+        booking_url: (body.bookingUrl as string) ?? "",
         updated_at: nowIso(),
       });
       if (error) throw error;

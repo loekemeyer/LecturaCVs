@@ -290,6 +290,8 @@ export default function Home() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [sedes, setSedes] = useState<Sede[]>([]);
   const [companyValues, setCompanyValues] = useState("");
+  // Link de la página de reservas de Google (para que el candidato elija horario).
+  const [bookingUrl, setBookingUrl] = useState("");
   const [activeTab, setActiveTab] = useState<string>(""); // job.id | "dashboard" | "perfil" | ""
   const [loaded, setLoaded] = useState(false);
   // Importar de Gmail: escaneo de avisos -> elegir -> levantar CVs.
@@ -371,6 +373,10 @@ export default function Home() {
   useEffect(() => {
     companyValuesRef.current = companyValues;
   }, [companyValues]);
+  const bookingUrlRef = useRef(bookingUrl);
+  useEffect(() => {
+    bookingUrlRef.current = bookingUrl;
+  }, [bookingUrl]);
   const fileRef = useRef<HTMLInputElement>(null);
   // Señal para pausar la evaluación en curso: los workers la leen antes de tomar
   // cada candidato. Es un ref (no estado) para que vean el valor más reciente sin
@@ -411,11 +417,13 @@ export default function Home() {
             : [];
           const sedesArr: Sede[] = Array.isArray(data.sedes) ? data.sedes : [];
           const cv: string = typeof data.companyValues === "string" ? data.companyValues : "";
+          const bk: string = typeof data.bookingUrl === "string" ? data.bookingUrl : "";
           setJobs(jobsArr);
           setActiveTab("");
           setSedes(sedesArr);
           setCompanyValues(cv);
-          syncedRef.current = buildSnapshot(jobsArr, sedesArr, cv);
+          setBookingUrl(bk);
+          syncedRef.current = buildSnapshot(jobsArr, sedesArr, cv, bk);
           // Nube vacía + datos viejos en este navegador => ofrecemos subirlos.
           if (jobsArr.length === 0) maybeOfferLocalMigration();
         }
@@ -437,7 +445,7 @@ export default function Home() {
       void syncToCloud();
     }, 600);
     return () => window.clearTimeout(syncTimerRef.current);
-  }, [jobs, sedes, companyValues, loaded]);
+  }, [jobs, sedes, companyValues, bookingUrl, loaded]);
 
   // Tiempo real: cuando otro usuario cambia algo, refrescamos desde la nube.
   useEffect(() => {
@@ -521,7 +529,7 @@ export default function Home() {
   }
 
   // "Foto" del estado para comparar contra lo último subido (clave -> JSON).
-  function buildSnapshot(jobsArr: Job[], sedesArr: Sede[], cv: string) {
+  function buildSnapshot(jobsArr: Job[], sedesArr: Sede[], cv: string, bk: string) {
     const searches = new Map<string, string>();
     const cands = new Map<string, string>();
     for (const j of jobsArr) {
@@ -529,13 +537,18 @@ export default function Home() {
       searches.set(j.id, JSON.stringify(meta));
       for (const c of candidates) cands.set(c.id, JSON.stringify({ s: j.id, c }));
     }
-    return { searches, cands, settings: JSON.stringify({ sedes: sedesArr, cv }) };
+    return { searches, cands, settings: JSON.stringify({ sedes: sedesArr, cv, bk }) };
   }
 
   // Sube a la nube SOLO lo que cambió desde la última sincronización.
   async function syncToCloud() {
     const jobsArr = jobsRef.current;
-    const cur = buildSnapshot(jobsArr, sedesRef.current, companyValuesRef.current);
+    const cur = buildSnapshot(
+      jobsArr,
+      sedesRef.current,
+      companyValuesRef.current,
+      bookingUrlRef.current,
+    );
     const prev = syncedRef.current;
     syncedRef.current = cur; // marcamos ya, para no reenviar en paralelo
     try {
@@ -576,6 +589,7 @@ export default function Home() {
           action: "saveSettings",
           sedes: sedesRef.current,
           companyValues: companyValuesRef.current,
+          bookingUrl: bookingUrlRef.current,
         });
       }
     } catch {
@@ -593,10 +607,12 @@ export default function Home() {
       const jobsArr: Job[] = Array.isArray(data.jobs) ? data.jobs : [];
       const sedesArr: Sede[] = Array.isArray(data.sedes) ? data.sedes : [];
       const cv: string = typeof data.companyValues === "string" ? data.companyValues : "";
-      syncedRef.current = buildSnapshot(jobsArr, sedesArr, cv);
+      const bk: string = typeof data.bookingUrl === "string" ? data.bookingUrl : "";
+      syncedRef.current = buildSnapshot(jobsArr, sedesArr, cv, bk);
       setJobs(jobsArr);
       setSedes(sedesArr);
       setCompanyValues(cv);
+      setBookingUrl(bk);
     } catch {
       /* ignorar */
     }
@@ -1850,6 +1866,8 @@ export default function Home() {
           googleEmail={googleCal.email}
           onConnectGoogle={connectGoogle}
           onDisconnectGoogle={disconnectGoogle}
+          bookingUrl={bookingUrl}
+          onBookingUrl={setBookingUrl}
         />
       )}
 
@@ -2438,6 +2456,7 @@ export default function Home() {
               sendMail={sendCandidateMail}
               scheduleInterview={scheduleInterview}
               googleConnected={googleCal.connected}
+              bookingUrl={bookingUrl}
               onClose={() => setMailCand(null)}
             />
           );
@@ -3343,6 +3362,8 @@ function Profile({
   googleEmail,
   onConnectGoogle,
   onDisconnectGoogle,
+  bookingUrl,
+  onBookingUrl,
 }: {
   jobs: Job[];
   sedes: Sede[];
@@ -3361,6 +3382,8 @@ function Profile({
   googleEmail: string;
   onConnectGoogle: () => void;
   onDisconnectGoogle: () => void;
+  bookingUrl: string;
+  onBookingUrl: (v: string) => void;
 }) {
   const backupFileRef = useRef<HTMLInputElement>(null);
   return (
@@ -3396,6 +3419,21 @@ function Profile({
             Conectar Google Calendar
           </button>
         )}
+
+        <h4 style={{ marginTop: 18, marginBottom: 4 }}>
+          Página de reservas (que el candidato elija el horario)
+        </h4>
+        <p className="field-hint" style={{ marginTop: 0 }}>
+          Pegá el link de tu <strong>página de reservas</strong> de Google Calendar. Después, en el
+          mail vas a tener un botón para insertarlo, así el candidato elige el horario que le queda.
+        </p>
+        <input
+          type="url"
+          className="booking-input"
+          placeholder="https://calendar.app.google/..."
+          value={bookingUrl}
+          onChange={(e) => onBookingUrl(e.target.value)}
+        />
       </section>
       <section className="card">
         <div className="results-toolbar">
@@ -3757,6 +3795,7 @@ function MailComposer({
   sendMail,
   scheduleInterview,
   googleConnected,
+  bookingUrl,
   onClose,
 }: {
   cand: Candidate;
@@ -3780,6 +3819,7 @@ function MailComposer({
     conflicts?: { summary: string; start: string }[];
   }>;
   googleConnected: boolean;
+  bookingUrl: string;
   onClose: () => void;
 }) {
   const first = cand.name.split(/\s+/)[0] || cand.name;
@@ -4030,6 +4070,18 @@ function MailComposer({
             Mensaje
             <textarea rows={10} value={body} onChange={(e) => setBody(e.target.value)} />
           </label>
+          {bookingUrl && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              style={{ alignSelf: "flex-start" }}
+              onClick={() =>
+                setBody((b) => `${b}\n\nElegí el horario que te quede cómodo acá: ${bookingUrl}`)
+              }
+            >
+              🔗 Insertar link de reservas
+            </button>
+          )}
           <p className="field-hint" style={{ marginTop: 0 }}>
             Se envía desde la cuenta de reclutamiento. También podés copiarlo o abrirlo en Gmail para
             mandarlo a mano.
