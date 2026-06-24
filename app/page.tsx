@@ -1452,6 +1452,30 @@ export default function Home() {
     w.document.close();
   }
 
+  // Envía un mail al candidato desde la cuenta de reclutamiento (servidor).
+  async function sendCandidateMail(
+    to: string,
+    subject: string,
+    body: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const res = await fetch("/api/send-mail", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ to, subject, body }),
+      });
+      if (res.status === 401) {
+        onAuthFail();
+        return { ok: false, error: "Tu sesión venció; volvé a entrar." };
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: data?.error || `Error ${res.status}` };
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Error de red." };
+    }
+  }
+
   // ---------- derivados ----------
   // Detalle del gasto estimado: CVs evaluados agrupados por aviso y por día.
   // (Es un estimado: cantidad de CVs evaluados × costo por CV del modelo.)
@@ -2323,6 +2347,7 @@ export default function Home() {
               cand={mailCand.cand}
               jobTitle={job?.title || ""}
               sede={job ? resolveAddress(job) : ""}
+              sendMail={sendCandidateMail}
               onClose={() => setMailCand(null)}
             />
           );
@@ -3607,11 +3632,13 @@ function MailComposer({
   cand,
   jobTitle,
   sede,
+  sendMail,
   onClose,
 }: {
   cand: Candidate;
   jobTitle: string;
   sede: string;
+  sendMail: (to: string, subject: string, body: string) => Promise<{ ok: boolean; error?: string }>;
   onClose: () => void;
 }) {
   const first = cand.name.split(/\s+/)[0] || cand.name;
@@ -3621,6 +3648,23 @@ function MailComposer({
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [copied, setCopied] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sentMsg, setSentMsg] = useState("");
+  const [errMsg, setErrMsg] = useState("");
+
+  async function doSend() {
+    setSending(true);
+    setErrMsg("");
+    setSentMsg("");
+    const r = await sendMail(to, subject, body);
+    setSending(false);
+    if (r.ok) {
+      setSentMsg("✓ Mail enviado");
+      window.setTimeout(onClose, 1200);
+    } else {
+      setErrMsg(r.error || "No se pudo enviar.");
+    }
+  }
 
   // Plantillas iniciales (provisorias; se afinan después). Se regeneran al cambiar
   // el tipo o el modo, pero respetan lo que edites mientras no cambies de tipo.
@@ -3736,15 +3780,26 @@ function MailComposer({
             <textarea rows={10} value={body} onChange={(e) => setBody(e.target.value)} />
           </label>
           <p className="field-hint" style={{ marginTop: 0 }}>
-            El envío automático desde la app se activa cuando conectemos el mail nuevo. Por ahora
-            podés copiarlo o abrirlo en Gmail para mandarlo.
+            Se envía desde la cuenta de reclutamiento. También podés copiarlo o abrirlo en Gmail para
+            mandarlo a mano.
           </p>
+          {errMsg && <div className="error-box">{errMsg}</div>}
+          {sentMsg && <div className="mail-sent">{sentMsg}</div>}
           <div className="mail-actions">
-            <button className="btn btn-ghost" onClick={copyBody}>
+            <button className="btn btn-ghost" onClick={copyBody} disabled={sending}>
               {copied ? "✓ Copiado" : "📋 Copiar"}
             </button>
-            <button className="btn btn-primary" onClick={openGmail} disabled={!to}>
+            <button className="btn btn-ghost" onClick={openGmail} disabled={!to || sending}>
               ✉️ Abrir en Gmail
+            </button>
+            <button className="btn btn-primary" onClick={doSend} disabled={!to || sending}>
+              {sending ? (
+                <>
+                  <span className="spinner" /> Enviando…
+                </>
+              ) : (
+                "✅ Enviar"
+              )}
             </button>
           </div>
         </div>
