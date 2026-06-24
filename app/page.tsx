@@ -1532,7 +1532,15 @@ export default function Home() {
     durationMin: number;
     online: boolean;
     location?: string;
-  }): Promise<{ ok: boolean; meetLink?: string; htmlLink?: string; error?: string }> {
+    force?: boolean;
+  }): Promise<{
+    ok: boolean;
+    meetLink?: string;
+    htmlLink?: string;
+    error?: string;
+    conflict?: boolean;
+    conflicts?: { summary: string; start: string }[];
+  }> {
     try {
       const res = await fetch("/api/google/schedule", {
         method: "POST",
@@ -1545,6 +1553,7 @@ export default function Home() {
       }
       const d = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, error: d?.error || `Error ${res.status}` };
+      if (d.conflict) return { ok: false, conflict: true, conflicts: d.conflicts || [] };
       return { ok: true, meetLink: d.meetLink, htmlLink: d.htmlLink };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Error de red." };
@@ -3761,7 +3770,15 @@ function MailComposer({
     durationMin: number;
     online: boolean;
     location?: string;
-  }) => Promise<{ ok: boolean; meetLink?: string; htmlLink?: string; error?: string }>;
+    force?: boolean;
+  }) => Promise<{
+    ok: boolean;
+    meetLink?: string;
+    htmlLink?: string;
+    error?: string;
+    conflict?: boolean;
+    conflicts?: { summary: string; start: string }[];
+  }>;
   googleConnected: boolean;
   onClose: () => void;
 }) {
@@ -3809,14 +3826,35 @@ function MailComposer({
     }
     setScheduling(true);
     const online = modo === "online";
-    const r = await scheduleInterview({
+    const base = {
       summary: `Entrevista – ${jobTitle || "candidato"} – ${cand.name}`,
       description: body,
       startISO: start.toISOString(),
       durationMin: schedDur,
       online,
       location: online ? "" : sede,
-    });
+    };
+    let r = await scheduleInterview(base);
+    // Aviso (no bloqueante) si ya hay otra entrevista a esa hora.
+    if (r.conflict) {
+      const lista = (r.conflicts || [])
+        .map((c) => {
+          const t = c.start ? new Date(c.start) : null;
+          const hora = t && !isNaN(t.getTime())
+            ? t.toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+            : "";
+          return `• ${c.summary}${hora ? ` (${hora})` : ""}`;
+        })
+        .join("\n");
+      const seguir = window.confirm(
+        `⚠️ Ya hay ${r.conflicts?.length || "otra"} entrevista(s) en ese horario:\n${lista}\n\n¿Querés agendar igual de todos modos?`,
+      );
+      if (!seguir) {
+        setScheduling(false);
+        return;
+      }
+      r = await scheduleInterview({ ...base, force: true });
+    }
     setScheduling(false);
     if (!r.ok) {
       setErrMsg(r.error || "No se pudo agendar.");

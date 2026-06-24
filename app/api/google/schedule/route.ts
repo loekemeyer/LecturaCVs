@@ -25,6 +25,7 @@ export async function POST(req: Request) {
     online?: unknown;
     location?: unknown;
     attendees?: unknown;
+    force?: unknown;
   };
   try {
     body = await req.json();
@@ -38,6 +39,7 @@ export async function POST(req: Request) {
   const durationMin = Number(body.durationMin ?? 30) || 30;
   const online = !!body.online;
   const location = String(body.location ?? "").trim();
+  const force = !!body.force; // saltear el aviso de superposición
   const attendees = Array.isArray(body.attendees)
     ? (body.attendees as unknown[]).map((a) => String(a)).filter((a) => /@/.test(a))
     : [];
@@ -57,6 +59,31 @@ export async function POST(req: Request) {
 
   try {
     const accessToken = await refreshAccessToken(refresh);
+
+    // Aviso (no bloqueante) si ya hay entrevistas en ese horario. Solo se chequea
+    // cuando NO se forzó: el cliente vuelve a llamar con force=true para confirmar.
+    if (!force) {
+      const q = new URLSearchParams({
+        timeMin: start.toISOString(),
+        timeMax: end.toISOString(),
+        singleEvents: "true",
+        orderBy: "startTime",
+        maxResults: "10",
+      });
+      const cRes = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events?${q.toString()}`,
+        { headers: { authorization: `Bearer ${accessToken}` } },
+      );
+      if (cRes.ok) {
+        const cData = await cRes.json();
+        type Ev = { status?: string; summary?: string; start?: { dateTime?: string; date?: string } };
+        const items: Ev[] = Array.isArray(cData.items) ? cData.items : [];
+        const conflicts = items
+          .filter((e) => e.status !== "cancelled" && (e.start?.dateTime || e.start?.date))
+          .map((e) => ({ summary: e.summary || "(sin título)", start: e.start?.dateTime || e.start?.date || "" }));
+        if (conflicts.length) return Response.json({ conflict: true, conflicts });
+      }
+    }
 
     const event: Record<string, unknown> = {
       summary,
