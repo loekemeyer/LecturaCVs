@@ -2140,6 +2140,43 @@ select.status-select.cal-descartado {
   justify-content: flex-end;
   gap: 8px;
 }
+.mail-sched {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed var(--border, #cbd5e1);
+  border-radius: 8px;
+}
+.mail-sched-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mail-sched-row .mail-field {
+  flex: 1;
+  min-width: 110px;
+}
+.mail-sched-row select {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+/* sección Google Calendar en Mi perfil */
+.gcal-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.gcal-ok {
+  color: #166534;
+  font-weight: 600;
+}
 @media (max-width: 560px) {
   .gsearch-head {
     flex-wrap: wrap;

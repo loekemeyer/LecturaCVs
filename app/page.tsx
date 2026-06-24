@@ -353,6 +353,11 @@ export default function Home() {
   const [costDetailOpen, setCostDetailOpen] = useState(false);
   // Compositor de mail abierto para un candidato (desde el tablero).
   const [mailCand, setMailCand] = useState<{ jobId: string; cand: Candidate } | null>(null);
+  // Estado de conexión con Google Calendar.
+  const [googleCal, setGoogleCal] = useState<{ connected: boolean; email: string }>({
+    connected: false,
+    email: "",
+  });
 
   const jobsRef = useRef(jobs);
   useEffect(() => {
@@ -454,6 +459,26 @@ export default function Home() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
+
+  // Estado de Google Calendar al iniciar sesión.
+  useEffect(() => {
+    if (authed) void refreshGoogleStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
+
+  // Vuelta de la conexión con Google (?google=connected|error).
+  useEffect(() => {
+    const g = new URLSearchParams(window.location.search).get("google");
+    if (!g) return;
+    showToast(
+      g === "connected"
+        ? "Google Calendar conectado ✓"
+        : "No se pudo conectar Google Calendar. Probá de nuevo.",
+    );
+    window.history.replaceState({}, "", window.location.pathname);
+    if (g === "connected") void refreshGoogleStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -1476,6 +1501,56 @@ export default function Home() {
     }
   }
 
+  // ---------- Google Calendar ----------
+  async function refreshGoogleStatus() {
+    try {
+      const res = await fetch("/api/google/status", { headers: authHeaders() });
+      if (res.status === 401) return;
+      const d = await res.json().catch(() => ({}));
+      setGoogleCal({ connected: !!d.connected, email: d.email || "" });
+    } catch {
+      /* ignorar */
+    }
+  }
+  function connectGoogle() {
+    window.location.href = "/api/google/start";
+  }
+  async function disconnectGoogle() {
+    if (!window.confirm("¿Desconectar Google Calendar?")) return;
+    try {
+      await fetch("/api/google/disconnect", { method: "POST", headers: authHeaders() });
+    } catch {
+      /* ignorar */
+    }
+    setGoogleCal({ connected: false, email: "" });
+  }
+  // Agenda la entrevista en Calendar (y genera Meet si es online).
+  async function scheduleInterview(payload: {
+    summary: string;
+    description: string;
+    startISO: string;
+    durationMin: number;
+    online: boolean;
+    location?: string;
+  }): Promise<{ ok: boolean; meetLink?: string; htmlLink?: string; error?: string }> {
+    try {
+      const res = await fetch("/api/google/schedule", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeaders() },
+        body: JSON.stringify(payload),
+      });
+      if (res.status === 401) {
+        onAuthFail();
+        return { ok: false, error: "Tu sesión venció." };
+      }
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: d?.error || `Error ${res.status}` };
+      return { ok: true, meetLink: d.meetLink, htmlLink: d.htmlLink };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Error de red." };
+    }
+  }
+
   // ---------- derivados ----------
   // Detalle del gasto estimado: CVs evaluados agrupados por aviso y por día.
   // (Es un estimado: cantidad de CVs evaluados × costo por CV del modelo.)
@@ -1762,6 +1837,10 @@ export default function Home() {
           onExportBackup={exportBackup}
           onImportBackup={importBackup}
           onLogout={logout}
+          googleConnected={googleCal.connected}
+          googleEmail={googleCal.email}
+          onConnectGoogle={connectGoogle}
+          onDisconnectGoogle={disconnectGoogle}
         />
       )}
 
@@ -2348,6 +2427,8 @@ export default function Home() {
               jobTitle={job?.title || ""}
               sede={job ? resolveAddress(job) : ""}
               sendMail={sendCandidateMail}
+              scheduleInterview={scheduleInterview}
+              googleConnected={googleCal.connected}
               onClose={() => setMailCand(null)}
             />
           );
@@ -3249,6 +3330,10 @@ function Profile({
   onExportBackup,
   onImportBackup,
   onLogout,
+  googleConnected,
+  googleEmail,
+  onConnectGoogle,
+  onDisconnectGoogle,
 }: {
   jobs: Job[];
   sedes: Sede[];
@@ -3263,6 +3348,10 @@ function Profile({
   onExportBackup: () => void;
   onImportBackup: (file: File) => void;
   onLogout: () => void;
+  googleConnected: boolean;
+  googleEmail: string;
+  onConnectGoogle: () => void;
+  onDisconnectGoogle: () => void;
 }) {
   const backupFileRef = useRef<HTMLInputElement>(null);
   return (
@@ -3275,6 +3364,30 @@ function Profile({
           🔒 Cerrar sesión
         </button>
       </div>
+
+      <section className="card">
+        <h3 className="profile-h3" style={{ marginTop: 0 }}>
+          📅 Google Calendar
+        </h3>
+        <p className="field-hint" style={{ marginTop: 0 }}>
+          Conectá una cuenta de Google para <strong>agendar entrevistas</strong> y generar el link de
+          <strong> Meet</strong> automáticamente desde el botón «Enviar mail» del tablero.
+        </p>
+        {googleConnected ? (
+          <div className="gcal-row">
+            <span className="gcal-ok">
+              ✓ Conectado{googleEmail ? ` como ${googleEmail}` : ""}
+            </span>
+            <button className="btn btn-ghost btn-sm" onClick={onDisconnectGoogle}>
+              Desconectar
+            </button>
+          </div>
+        ) : (
+          <button className="btn btn-primary" onClick={onConnectGoogle}>
+            Conectar Google Calendar
+          </button>
+        )}
+      </section>
       <section className="card">
         <div className="results-toolbar">
           <h2 style={{ margin: 0 }}>👤 Mi perfil</h2>
@@ -3633,12 +3746,23 @@ function MailComposer({
   jobTitle,
   sede,
   sendMail,
+  scheduleInterview,
+  googleConnected,
   onClose,
 }: {
   cand: Candidate;
   jobTitle: string;
   sede: string;
   sendMail: (to: string, subject: string, body: string) => Promise<{ ok: boolean; error?: string }>;
+  scheduleInterview: (payload: {
+    summary: string;
+    description: string;
+    startISO: string;
+    durationMin: number;
+    online: boolean;
+    location?: string;
+  }) => Promise<{ ok: boolean; meetLink?: string; htmlLink?: string; error?: string }>;
+  googleConnected: boolean;
   onClose: () => void;
 }) {
   const first = cand.name.split(/\s+/)[0] || cand.name;
@@ -3651,6 +3775,11 @@ function MailComposer({
   const [sending, setSending] = useState(false);
   const [sentMsg, setSentMsg] = useState("");
   const [errMsg, setErrMsg] = useState("");
+  // Agendado (solo para tipo "entrevista").
+  const [schedDate, setSchedDate] = useState("");
+  const [schedTime, setSchedTime] = useState("");
+  const [schedDur, setSchedDur] = useState(30);
+  const [scheduling, setScheduling] = useState(false);
 
   async function doSend() {
     setSending(true);
@@ -3664,6 +3793,42 @@ function MailComposer({
     } else {
       setErrMsg(r.error || "No se pudo enviar.");
     }
+  }
+
+  async function doSchedule() {
+    setErrMsg("");
+    setSentMsg("");
+    if (!schedDate || !schedTime) {
+      setErrMsg("Elegí fecha y hora para agendar la entrevista.");
+      return;
+    }
+    const start = new Date(`${schedDate}T${schedTime}`);
+    if (isNaN(start.getTime())) {
+      setErrMsg("Fecha/hora inválida.");
+      return;
+    }
+    setScheduling(true);
+    const online = modo === "online";
+    const r = await scheduleInterview({
+      summary: `Entrevista – ${jobTitle || "candidato"} – ${cand.name}`,
+      description: body,
+      startISO: start.toISOString(),
+      durationMin: schedDur,
+      online,
+      location: online ? "" : sede,
+    });
+    setScheduling(false);
+    if (!r.ok) {
+      setErrMsg(r.error || "No se pudo agendar.");
+      return;
+    }
+    // Insertamos fecha/hora (y el link de Meet si es online) al final del mensaje.
+    const fecha = `${schedDate.slice(8, 10)}/${schedDate.slice(5, 7)}/${schedDate.slice(0, 4)}`;
+    let extra = `\n\n📅 Entrevista: ${fecha} a las ${schedTime} hs.`;
+    if (online && r.meetLink) extra += `\n🔗 Link de videollamada (Meet): ${r.meetLink}`;
+    else if (!online && sede) extra += `\n📍 Lugar: ${sede}`;
+    setBody((b) => b + extra);
+    setSentMsg(online ? "✓ Entrevista agendada y Meet generado" : "✓ Entrevista agendada");
   }
 
   // Plantillas iniciales (provisorias; se afinan después). Se regeneran al cambiar
@@ -3757,6 +3922,54 @@ function MailComposer({
                 <input type="radio" checked={modo === "online"} onChange={() => setModo("online")} />
                 Online
               </label>
+            </div>
+          )}
+          {type === "entrevista" && (
+            <div className="mail-sched">
+              <div className="mail-sched-row">
+                <label className="mail-field">
+                  Fecha
+                  <input
+                    type="date"
+                    value={schedDate}
+                    onChange={(e) => setSchedDate(e.target.value)}
+                  />
+                </label>
+                <label className="mail-field">
+                  Hora
+                  <input
+                    type="time"
+                    value={schedTime}
+                    onChange={(e) => setSchedTime(e.target.value)}
+                  />
+                </label>
+                <label className="mail-field">
+                  Duración
+                  <select value={schedDur} onChange={(e) => setSchedDur(Number(e.target.value))}>
+                    <option value={15}>15 min</option>
+                    <option value={30}>30 min</option>
+                    <option value={45}>45 min</option>
+                    <option value={60}>60 min</option>
+                  </select>
+                </label>
+              </div>
+              {googleConnected ? (
+                <button className="btn btn-ghost btn-sm" onClick={doSchedule} disabled={scheduling}>
+                  {scheduling ? (
+                    <>
+                      <span className="spinner" /> Agendando…
+                    </>
+                  ) : modo === "online" ? (
+                    "📅 Agendar + generar Meet"
+                  ) : (
+                    "📅 Agendar en Calendar"
+                  )}
+                </button>
+              ) : (
+                <p className="mail-warn">
+                  Conectá Google Calendar en «Mi perfil» para agendar y generar el Meet.
+                </p>
+              )}
             </div>
           )}
           <label className="mail-field">
