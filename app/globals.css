@@ -1994,6 +1994,18 @@ select.status-select.cal-descartado {
   border-radius: 6px;
   max-width: 110px;
 }
+.board-note {
+  width: 100%;
+  margin-top: 8px;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+  resize: vertical;
+  background: #fffdf5;
+  box-sizing: border-box;
+}
 .board-empty {
   color: #94a3b8;
   font-size: 12px;

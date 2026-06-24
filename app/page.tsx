@@ -2118,6 +2118,7 @@ export default function Home() {
                 onDeleteStage={(sid) => deleteStage(activeJob.id, sid)}
                 onMoveStage={(sid, dir) => moveStage(activeJob.id, sid, dir)}
                 onViewCv={openCv}
+                onNotes={(candId, t) => patchCandidate(activeJob.id, candId, { notes: t })}
               />
             ) : (
               <>
@@ -3408,6 +3409,7 @@ function Board({
   onDeleteStage,
   onMoveStage,
   onViewCv,
+  onNotes,
 }: {
   job: Job;
   stages: Stage[];
@@ -3418,6 +3420,7 @@ function Board({
   onDeleteStage: (stageId: string) => void;
   onMoveStage: (stageId: string, dir: -1 | 1) => void;
   onViewCv: (c: { name: string; emailUid?: number; cvText?: string }) => void;
+  onNotes: (candId: string, t: string) => void;
 }) {
   const onBoard = job.candidates.filter((c) => c.stageId);
   const byStage = (sid: string) =>
@@ -3507,11 +3510,12 @@ function Board({
                     <div className="board-card-actions">
                       <button
                         className="btn btn-ghost btn-sm"
+                        title="Ver CV completo (con opción de imprimir)"
                         onClick={() =>
                           onViewCv({ name: c.name, emailUid: c.emailUid, cvText: c.cvText })
                         }
                       >
-                        📄 CV
+                        📄 Ver CV
                       </button>
                       <select
                         className="board-move"
@@ -3533,6 +3537,13 @@ function Board({
                         ✕
                       </button>
                     </div>
+                    <textarea
+                      className="board-note"
+                      rows={2}
+                      placeholder="📝 Nota… (se ve también en la Lista)"
+                      value={c.notes ?? ""}
+                      onChange={(e) => onNotes(c.id, e.target.value)}
+                    />
                   </div>
                 ))}
                 {list.length === 0 && <div className="board-empty">Soltá acá una tarjeta</div>}
