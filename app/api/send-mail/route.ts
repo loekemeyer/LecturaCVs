@@ -22,18 +22,28 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { to?: unknown; subject?: unknown; body?: unknown };
+  let form: FormData;
   try {
-    body = await req.json();
+    form = await req.formData();
   } catch {
     return bad("Petición inválida.");
   }
 
-  const to = String(body?.to ?? "").trim();
-  const subject = String(body?.subject ?? "").trim();
-  const text = String(body?.body ?? "");
+  const to = String(form.get("to") ?? "").trim();
+  const subject = String(form.get("subject") ?? "").trim();
+  const text = String(form.get("body") ?? "");
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return bad("El mail del destinatario no es válido.");
   if (!text.trim()) return bad("El mensaje está vacío.");
+
+  // Adjuntos (ej. el Excel de la prueba). Tope ~20 MB en total (límite de Gmail 25).
+  const files = form.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+  const totalBytes = files.reduce((n, f) => n + f.size, 0);
+  if (totalBytes > 20 * 1024 * 1024) {
+    return bad("Los adjuntos superan los 20 MB. Mandá archivos más livianos.");
+  }
+  const attachments = await Promise.all(
+    files.map(async (f) => ({ filename: f.name, content: Buffer.from(await f.arrayBuffer()) })),
+  );
 
   try {
     const transport = nodemailer.createTransport({
@@ -47,6 +57,7 @@ export async function POST(req: Request) {
       to,
       subject: subject || "(sin asunto)",
       text,
+      attachments,
     });
     return Response.json({ ok: true });
   } catch (err) {

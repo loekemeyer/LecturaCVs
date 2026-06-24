@@ -1498,12 +1498,18 @@ export default function Home() {
     to: string,
     subject: string,
     body: string,
+    files: File[] = [],
   ): Promise<{ ok: boolean; error?: string }> {
     try {
+      const fd = new FormData();
+      fd.append("to", to);
+      fd.append("subject", subject);
+      fd.append("body", body);
+      for (const f of files) fd.append("file", f);
       const res = await fetch("/api/send-mail", {
         method: "POST",
-        headers: { "content-type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ to, subject, body }),
+        headers: { ...authHeaders() },
+        body: fd,
       });
       if (res.status === 401) {
         onAuthFail();
@@ -3801,7 +3807,12 @@ function MailComposer({
   cand: Candidate;
   jobTitle: string;
   sede: string;
-  sendMail: (to: string, subject: string, body: string) => Promise<{ ok: boolean; error?: string }>;
+  sendMail: (
+    to: string,
+    subject: string,
+    body: string,
+    files: File[],
+  ) => Promise<{ ok: boolean; error?: string }>;
   scheduleInterview: (payload: {
     summary: string;
     description: string;
@@ -3832,6 +3843,8 @@ function MailComposer({
   const [sending, setSending] = useState(false);
   const [sentMsg, setSentMsg] = useState("");
   const [errMsg, setErrMsg] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
   // Agendado (solo para tipo "entrevista").
   const [schedDate, setSchedDate] = useState("");
   const [schedTime, setSchedTime] = useState("");
@@ -3842,7 +3855,7 @@ function MailComposer({
     setSending(true);
     setErrMsg("");
     setSentMsg("");
-    const r = await sendMail(to, subject, body);
+    const r = await sendMail(to, subject, body, files);
     setSending(false);
     if (r.ok) {
       setSentMsg("✓ Mail enviado");
@@ -3917,15 +3930,36 @@ function MailComposer({
     const esAdmin = /admin|contab|administrativ/i.test(jobTitle);
     const esDiseno = /dise|gr[aá]fic|ux|ui/i.test(jobTitle);
     if (type === "contacto") {
-      setSubject(`Tu postulación${tit}`);
-      const paso = esAdmin
-        ? "Como primer paso te enviamos una breve prueba de Excel; según el resultado coordinamos una entrevista presencial."
-        : esDiseno
-          ? "Como primer paso te pedimos que nos compartas tu portfolio; según esa evaluación coordinamos una entrevista."
-          : "Nos gustaría avanzar con tu proceso y contarte los próximos pasos.";
-      setBody(
-        `Hola ${first}, ¿cómo estás?\n\nTe escribimos${puesto} porque nos interesó tu perfil. ${paso}\n\n¿Tenés disponibilidad estos días?\n\n¡Gracias!\nSaludos,`,
-      );
+      if (esAdmin) {
+        setSubject(`Postulación – ${jobTitle.trim() || "Administrativo"} (Loekemeyer SRL)`);
+        setBody(
+          `Estimado postulante,\n\n` +
+            `Recibimos tu CV y fue seleccionado por nuestra empresa Loekemeyer SRL. ` +
+            `Nuestra empresa está en la búsqueda de personal administrativo para su sede en Devoto.\n\n` +
+            `Te adjunto un archivo Excel con las herramientas que necesitamos que sepas o aprendas. ` +
+            `En una hoja tenés un ejercicio y en la otra la explicación de cómo resolverlo. ` +
+            `Una vez resuelto, nos lo compartís por este medio.\n\n` +
+            `La idea es que puedas hacer los ejercicios para que los evaluemos. En caso de que avances ` +
+            `en el proceso de selección, el siguiente paso será coordinar la instancia de entrevista presencial.\n\n` +
+            `Indícanos por favor tu disponibilidad horaria para una posible entrevista presencial o virtual. ` +
+            `Agradeceríamos nos indiques en caso de no tener interés.\n\n` +
+            `¡Saludos!`,
+        );
+      } else if (esDiseno) {
+        setSubject(`Tu postulación${tit}`);
+        setBody(
+          `Hola ${first}, ¿cómo estás?\n\nRecibimos tu CV${puesto} y nos interesó tu perfil. ` +
+            `Como primer paso te pedimos que nos compartas tu portfolio para evaluarlo; según esa ` +
+            `evaluación coordinamos una entrevista.\n\n¿Tenés disponibilidad estos días?\n\n¡Gracias!\nSaludos,`,
+        );
+      } else {
+        setSubject(`Tu postulación${tit}`);
+        setBody(
+          `Hola ${first}, ¿cómo estás?\n\nRecibimos tu CV${puesto} y nos interesó tu perfil. ` +
+            `Nos gustaría avanzar con tu proceso y contarte los próximos pasos.\n\n¿Tenés disponibilidad ` +
+            `estos días?\n\n¡Gracias!\nSaludos,`,
+        );
+      }
     } else if (type === "entrevista") {
       setSubject(`Entrevista${tit}`);
       const lugar =
@@ -4082,6 +4116,50 @@ function MailComposer({
               🔗 Insertar link de reservas
             </button>
           )}
+          <div className="mail-attach">
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const list = e.target.files ? Array.from(e.target.files) : [];
+                if (list.length) setFiles((prev) => [...prev, ...list]);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              style={{ alignSelf: "flex-start" }}
+              onClick={() => fileRef.current?.click()}
+            >
+              📎 Adjuntar archivo
+            </button>
+            {files.length > 0 && (
+              <ul className="mail-files">
+                {files.map((f, i) => (
+                  <li key={i}>
+                    📄 {f.name}{" "}
+                    <span className="mail-file-size">({Math.round(f.size / 1024)} KB)</span>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Quitar"
+                      onClick={() => setFiles((prev) => prev.filter((_, k) => k !== i))}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {files.length > 0 && (
+              <p className="field-hint" style={{ margin: 0 }}>
+                Los adjuntos se mandan solo con «✅ Enviar» (no con Copiar ni Abrir en Gmail).
+              </p>
+            )}
+          </div>
           <p className="field-hint" style={{ marginTop: 0 }}>
             Se envía desde la cuenta de reclutamiento. También podés copiarlo o abrirlo en Gmail para
             mandarlo a mano.
