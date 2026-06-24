@@ -2007,6 +2007,23 @@ select.status-select.cal-descartado {
   border-radius: 6px;
   max-width: 110px;
 }
+.board-move-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-soft, #555);
+}
+.board-move-row select {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+}
 .board-note {
   width: 100%;
   margin-top: 8px;

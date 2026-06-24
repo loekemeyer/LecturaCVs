@@ -3763,6 +3763,20 @@ function Board({
                         ✕
                       </button>
                     </div>
+                    <label className="board-move-row">
+                      Mover a:
+                      <select
+                        value={c.stageId}
+                        onChange={(e) => onMove(c.id, e.target.value)}
+                        title="Mover a otra etapa"
+                      >
+                        {stages.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <textarea
                       className="board-note"
                       rows={2}
