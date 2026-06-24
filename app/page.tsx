@@ -351,6 +351,8 @@ export default function Home() {
   const [boardView, setBoardView] = useState(false);
   // Pantalla con el detalle del gasto estimado (por día y por aviso).
   const [costDetailOpen, setCostDetailOpen] = useState(false);
+  // Compositor de mail abierto para un candidato (desde el tablero).
+  const [mailCand, setMailCand] = useState<{ jobId: string; cand: Candidate } | null>(null);
 
   const jobsRef = useRef(jobs);
   useEffect(() => {
@@ -2138,6 +2140,7 @@ export default function Home() {
                 onMoveStage={(sid, dir) => moveStage(activeJob.id, sid, dir)}
                 onViewCv={openCv}
                 onNotes={(candId, t) => patchCandidate(activeJob.id, candId, { notes: t })}
+                onSendMail={(cand) => setMailCand({ jobId: activeJob.id, cand })}
               />
             ) : (
               <>
@@ -2311,6 +2314,19 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {mailCand &&
+        (() => {
+          const job = jobs.find((j) => j.id === mailCand.jobId);
+          return (
+            <MailComposer
+              cand={mailCand.cand}
+              jobTitle={job?.title || ""}
+              sede={job ? resolveAddress(job) : ""}
+              onClose={() => setMailCand(null)}
+            />
+          );
+        })()}
 
       {scanOpen && (
         <div className="modal-overlay" onClick={() => setScanOpen(false)}>
@@ -3429,6 +3445,7 @@ function Board({
   onMoveStage,
   onViewCv,
   onNotes,
+  onSendMail,
 }: {
   job: Job;
   stages: Stage[];
@@ -3440,6 +3457,7 @@ function Board({
   onMoveStage: (stageId: string, dir: -1 | 1) => void;
   onViewCv: (c: { name: string; emailUid?: number; cvText?: string }) => void;
   onNotes: (candId: string, t: string) => void;
+  onSendMail: (cand: Candidate) => void;
 }) {
   const onBoard = job.candidates.filter((c) => c.stageId);
   const byStage = (sid: string) =>
@@ -3536,18 +3554,13 @@ function Board({
                       >
                         📄 Ver CV
                       </button>
-                      <select
-                        className="board-move"
-                        value={c.stageId}
-                        onChange={(e) => onMove(c.id, e.target.value)}
-                        title="Mover a otra etapa"
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        title="Enviar un mail al candidato"
+                        onClick={() => onSendMail(c)}
                       >
-                        {stages.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.label}
-                          </option>
-                        ))}
-                      </select>
+                        ✉️ Enviar mail
+                      </button>
                       <button
                         className="icon-btn"
                         title="Sacar del tablero"
@@ -3573,6 +3586,168 @@ function Board({
         <button className="board-add" onClick={onAddStage} title="Agregar una etapa nueva">
           ➕ Agregar etapa
         </button>
+      </div>
+    </div>
+  );
+}
+
+// Saca el primer mail del candidato del texto del CV (ignora los de ZonaJobs).
+function extractEmail(text?: string): string {
+  if (!text) return "";
+  const matches = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+  return matches.find((m) => !/zonajobs|no_reply|noreply|bumeran/i.test(m)) || "";
+}
+
+type MailType = "contacto" | "entrevista" | "rechazo";
+
+// Compositor de mail (manual): elegís el tipo, se arma un borrador editable y lo
+// copiás o lo abrís en Gmail para enviarlo. El envío automático desde la app se
+// activará cuando se conecte el mail nuevo.
+function MailComposer({
+  cand,
+  jobTitle,
+  sede,
+  onClose,
+}: {
+  cand: Candidate;
+  jobTitle: string;
+  sede: string;
+  onClose: () => void;
+}) {
+  const first = cand.name.split(/\s+/)[0] || cand.name;
+  const [to, setTo] = useState(extractEmail(cand.cvText));
+  const [type, setType] = useState<MailType>("contacto");
+  const [modo, setModo] = useState<"presencial" | "online">("presencial");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  // Plantillas iniciales (provisorias; se afinan después). Se regeneran al cambiar
+  // el tipo o el modo, pero respetan lo que edites mientras no cambies de tipo.
+  useEffect(() => {
+    const puesto = jobTitle.trim() ? ` para la búsqueda de ${jobTitle.trim()}` : "";
+    const tit = jobTitle.trim() ? ` – ${jobTitle.trim()}` : "";
+    const esAdmin = /admin|contab|administrativ/i.test(jobTitle);
+    const esDiseno = /dise|gr[aá]fic|ux|ui/i.test(jobTitle);
+    if (type === "contacto") {
+      setSubject(`Tu postulación${tit}`);
+      const paso = esAdmin
+        ? "Como primer paso te enviamos una breve prueba de Excel; según el resultado coordinamos una entrevista presencial."
+        : esDiseno
+          ? "Como primer paso te pedimos que nos compartas tu portfolio; según esa evaluación coordinamos una entrevista."
+          : "Nos gustaría avanzar con tu proceso y contarte los próximos pasos.";
+      setBody(
+        `Hola ${first}, ¿cómo estás?\n\nTe escribimos${puesto} porque nos interesó tu perfil. ${paso}\n\n¿Tenés disponibilidad estos días?\n\n¡Gracias!\nSaludos,`,
+      );
+    } else if (type === "entrevista") {
+      setSubject(`Entrevista${tit}`);
+      const lugar =
+        modo === "presencial"
+          ? `Sería una entrevista presencial${sede ? ` en ${sede}` : ""}.`
+          : "Sería una entrevista online por videollamada (te enviamos el link al confirmar).";
+      setBody(
+        `Hola ${first}, ¿cómo estás?\n\nNos gustaría coordinar una entrevista${puesto}. ${lugar}\n\n¿Qué día y horario te quedan cómodos?\n\n¡Gracias!\nSaludos,`,
+      );
+    } else {
+      setSubject(`Tu postulación${tit}`);
+      setBody(
+        `Hola ${first}, ¿cómo estás?\n\nGracias por tu interés y por el tiempo dedicado a tu postulación${puesto}. En esta oportunidad avanzamos con otros perfiles, pero guardamos tu CV para futuras búsquedas.\n\nTe deseamos muchos éxitos.\nSaludos,`,
+      );
+    }
+  }, [type, modo, first, jobTitle, sede]);
+
+  function copyBody() {
+    navigator.clipboard?.writeText(body).then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 2000);
+      },
+      () => {},
+    );
+  }
+  function openGmail() {
+    const url = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(
+      to,
+    )}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(url, "_blank");
+  }
+
+  const TYPES: [MailType, string][] = [
+    ["contacto", "Contacto"],
+    ["entrevista", "Entrevista"],
+    ["rechazo", "Rechazo"],
+  ];
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <strong>✉️ Enviar mail – {cand.name}</strong>
+          <button className="icon-btn" aria-label="Cerrar" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <div className="modal-body mail-composer">
+          <div className="mail-types">
+            {TYPES.map(([v, l]) => (
+              <button
+                key={v}
+                className={`mail-type-btn${type === v ? " on" : ""}`}
+                onClick={() => setType(v)}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+          {type === "entrevista" && (
+            <div className="mail-modo">
+              <label className={`mail-modo-opt${modo === "presencial" ? " on" : ""}`}>
+                <input
+                  type="radio"
+                  checked={modo === "presencial"}
+                  onChange={() => setModo("presencial")}
+                />
+                Presencial
+              </label>
+              <label className={`mail-modo-opt${modo === "online" ? " on" : ""}`}>
+                <input type="radio" checked={modo === "online"} onChange={() => setModo("online")} />
+                Online
+              </label>
+            </div>
+          )}
+          <label className="mail-field">
+            Para
+            <input
+              type="email"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              placeholder="mail@candidato.com"
+            />
+          </label>
+          {!to && (
+            <p className="mail-warn">No encontré el mail en el CV — cargalo a mano para enviarlo.</p>
+          )}
+          <label className="mail-field">
+            Asunto
+            <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)} />
+          </label>
+          <label className="mail-field">
+            Mensaje
+            <textarea rows={10} value={body} onChange={(e) => setBody(e.target.value)} />
+          </label>
+          <p className="field-hint" style={{ marginTop: 0 }}>
+            El envío automático desde la app se activa cuando conectemos el mail nuevo. Por ahora
+            podés copiarlo o abrirlo en Gmail para mandarlo.
+          </p>
+          <div className="mail-actions">
+            <button className="btn btn-ghost" onClick={copyBody}>
+              {copied ? "✓ Copiado" : "📋 Copiar"}
+            </button>
+            <button className="btn btn-primary" onClick={openGmail} disabled={!to}>
+              ✉️ Abrir en Gmail
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
