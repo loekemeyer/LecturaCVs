@@ -2006,6 +2006,70 @@ select.status-select.cal-descartado {
   background: #fffdf5;
   box-sizing: border-box;
 }
+
+/* ---------- buscador global ---------- */
+.gsearch-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin: 4px 0 14px;
+}
+.gsearch-box input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  font: inherit;
+  font-size: 15px;
+  background: transparent;
+}
+.gsearch-results {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.gsearch-row {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.gsearch-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.gsearch-id {
+  flex: 1;
+  min-width: 0;
+}
+.gsearch-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.gsearch-snippet {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-soft, #555);
+  line-height: 1.5;
+}
+.gsearch-snippet mark {
+  background: #fde68a;
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+@media (max-width: 560px) {
+  .gsearch-head {
+    flex-wrap: wrap;
+  }
+  .gsearch-actions {
+    width: 100%;
+  }
+}
 .board-empty {
   color: #94a3b8;
   font-size: 12px;

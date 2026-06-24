@@ -211,6 +211,10 @@ function fmtDay(d: string): string {
   if (d === "sin-fecha") return "Sin fecha";
   return `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
 }
+// Pasa a minúsculas y quita acentos, para que la búsqueda sea tolerante (ej.
+// "administracion" encuentra "Administración").
+const stripAccents = (s: string) =>
+  s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 function hace(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
@@ -1635,6 +1639,14 @@ export default function Home() {
             )}
           </button>
           <button
+            className={`profile-btn${activeTab === "buscar" ? " active" : ""}`}
+            onClick={() => setActiveTab((cur) => (cur === "buscar" ? "" : "buscar"))}
+            title="Buscador global"
+          >
+            <span className="profile-btn-icon">🔎</span>
+            <span className="profile-btn-text">Buscar</span>
+          </button>
+          <button
             className={`profile-btn${activeTab === "perfil" ? " active" : ""}`}
             onClick={toggleProfile}
             title="Mi perfil"
@@ -1688,7 +1700,9 @@ export default function Home() {
               ? `${activeJob.title} · ${shortDate(activeJob.firstDate)}`
               : activeTab === "dashboard"
                 ? "📊 Panel general"
-                : ""}
+                : activeTab === "buscar"
+                  ? "🔎 Buscador global"
+                  : ""}
           </span>
           <div className="aviso-nav-actions">
             <button className="btn btn-ghost tab-new-btn" onClick={openScanModal}>
@@ -1700,6 +1714,11 @@ export default function Home() {
 
       {/* panel general */}
       {activeTab === "dashboard" && <Dashboard jobs={jobs} onStatus={patchCandidate} />}
+
+      {/* buscador global (en toda la base) */}
+      {activeTab === "buscar" && (
+        <GlobalSearch jobs={jobs} onOpenJob={(id) => setActiveTab(id)} onViewCv={openCv} />
+      )}
 
       {/* mi perfil: sedes laborales + asignación por aviso */}
       {activeTab === "perfil" && (
@@ -3556,6 +3575,149 @@ function Board({
         </button>
       </div>
     </div>
+  );
+}
+
+// Buscador global: busca palabras clave (habilidades, herramientas, etc.) en TODOS
+// los candidatos de TODAS las búsquedas. Trabaja sobre los datos ya cargados.
+function GlobalSearch({
+  jobs,
+  onOpenJob,
+  onViewCv,
+}: {
+  jobs: Job[];
+  onOpenJob: (jobId: string) => void;
+  onViewCv: (c: { name: string; emailUid?: number; cvText?: string }) => void;
+}) {
+  const [q, setQ] = useState("");
+
+  // Índice (texto buscable por candidato). Se arma una sola vez por cambio de datos.
+  const index = useMemo(() => {
+    const arr: { jobId: string; jobTitle: string; cand: Candidate; text: string; hay: string }[] = [];
+    for (const j of jobs) {
+      for (const c of j.candidates) {
+        const ev = c.evaluation;
+        const text = [
+          c.name,
+          c.cvText,
+          ev?.summary,
+          ...(ev?.strengths ?? []),
+          ...(ev?.concerns ?? []),
+          ...((ev?.criteria ?? []).map((cr) => cr.justification)),
+          ev?.location,
+          c.notes,
+        ]
+          .filter(Boolean)
+          .join("  ");
+        arr.push({ jobId: j.id, jobTitle: j.title, cand: c, text, hay: stripAccents(text) });
+      }
+    }
+    return arr;
+  }, [jobs]);
+
+  const { results, terms } = useMemo(() => {
+    const raw = q.trim().toLowerCase().split(/\s+/).filter((t) => t.length >= 2);
+    const matchTerms = raw.map(stripAccents);
+    if (!matchTerms.length) return { results: [], terms: raw };
+    const out = index.filter((it) => matchTerms.every((t) => it.hay.includes(t)));
+    out.sort(
+      (a, b) => (b.cand.evaluation?.overallScore ?? -1) - (a.cand.evaluation?.overallScore ?? -1),
+    );
+    return { results: out, terms: raw };
+  }, [index, q]);
+
+  // Fragmento del CV alrededor de la primera coincidencia.
+  function snippet(text: string): string {
+    if (!text) return "";
+    const low = text.toLowerCase();
+    let idx = -1;
+    for (const t of terms) {
+      const i = low.indexOf(t);
+      if (i >= 0 && (idx < 0 || i < idx)) idx = i;
+    }
+    if (idx < 0) return text.slice(0, 160).trim() + (text.length > 160 ? "…" : "");
+    const start = Math.max(0, idx - 60);
+    return (start > 0 ? "…" : "") + text.slice(start, start + 200).trim() + "…";
+  }
+  function highlight(s: string): ReactNode {
+    if (!terms.length) return s;
+    const esc = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+    const parts = s.split(new RegExp(`(${esc})`, "gi"));
+    const set = new Set(terms.map((t) => t.toLowerCase()));
+    return parts.map((p, i) =>
+      set.has(p.toLowerCase()) ? <mark key={i}>{p}</mark> : <span key={i}>{p}</span>,
+    );
+  }
+
+  return (
+    <section className="card">
+      <div className="results-toolbar">
+        <h2 style={{ margin: 0 }}>🔎 Buscador global</h2>
+        {q.trim() && (
+          <span className="count">
+            {results.length} resultado{results.length !== 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+      <p className="field-hint" style={{ marginTop: 0 }}>
+        Buscá por palabras clave (habilidades, herramientas, lo que sea) en TODOS los candidatos de
+        todas las búsquedas. Si ponés varias palabras, muestra a quienes las tienen todas.
+      </p>
+      <div className="gsearch-box">
+        <span className="cand-search-icon">🔎</span>
+        <input
+          autoFocus
+          type="search"
+          placeholder="Ej: excel tango, sql, inglés, liderazgo…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      </div>
+
+      {!q.trim() ? (
+        <p className="empty">Escribí una o más palabras para buscar en toda la base.</p>
+      ) : results.length === 0 ? (
+        <p className="empty">Ningún candidato coincide con «{q.trim()}».</p>
+      ) : (
+        <div className="gsearch-results">
+          {results.map(({ jobId, jobTitle, cand, text }) => (
+            <div className="gsearch-row" key={cand.id}>
+              <div className="gsearch-head">
+                {cand.evaluation ? (
+                  <span className={`score-chip ${scoreClass(cand.evaluation.overallScore)}`}>
+                    {toTen(cand.evaluation.overallScore)}
+                  </span>
+                ) : (
+                  <span className="score-chip none">—</span>
+                )}
+                <div className="gsearch-id">
+                  <div className="who">{cand.name}</div>
+                  <div className="file">
+                    {jobTitle}
+                    {cand.evaluation?.age != null ? ` · ${cand.evaluation.age} años` : ""}
+                    {cand.evaluation?.location ? ` · ${cand.evaluation.location}` : ""}
+                  </div>
+                </div>
+                <div className="gsearch-actions">
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() =>
+                      onViewCv({ name: cand.name, emailUid: cand.emailUid, cvText: cand.cvText })
+                    }
+                  >
+                    📄 Ver CV
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => onOpenJob(jobId)}>
+                    Abrir búsqueda
+                  </button>
+                </div>
+              </div>
+              <p className="gsearch-snippet">{highlight(snippet(text))}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
