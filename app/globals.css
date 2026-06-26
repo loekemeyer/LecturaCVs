@@ -2198,6 +2198,7 @@ select.status-select.cal-descartado {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .mail-sched {
   display: flex;

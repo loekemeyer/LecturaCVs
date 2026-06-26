@@ -3806,6 +3806,28 @@ function extractEmail(text?: string): string {
   return matches.find((m) => !/zonajobs|no_reply|noreply|bumeran/i.test(m)) || "";
 }
 
+// Saca un teléfono del CV (prioriza el que está al lado de "Tel/Cel/WhatsApp").
+function extractPhone(text?: string): string {
+  if (!text) return "";
+  const labeled = text.match(
+    /(?:tel[eé]fono|tel\.?|cel(?:ular)?|whats?app|wpp|m[oó]vil|contacto)[:\s]*(\+?[\d\s().-]{7,18})/i,
+  );
+  if (labeled?.[1]) return labeled[1];
+  const any = (text.match(/\+?\d[\d\s().-]{7,16}\d/g) || [])
+    .filter((s) => s.replace(/\D/g, "").length >= 8 && s.replace(/\D/g, "").length <= 15);
+  return any[0] || "";
+}
+
+// Pasa un teléfono a formato para wa.me (Argentina por defecto: 549 + número).
+// Es un mejor-esfuerzo: el usuario lo verifica/edita en el campo.
+function toWaNumber(raw: string): string {
+  let d = (raw || "").replace(/\D/g, "");
+  if (!d) return "";
+  if (d.startsWith("54")) return d;
+  d = d.replace(/^0/, "");
+  return "549" + d;
+}
+
 type MailType = "contacto" | "entrevista" | "rechazo";
 
 // Compositor de mail (manual): elegís el tipo, se arma un borrador editable y lo
@@ -3852,6 +3874,7 @@ function MailComposer({
 }) {
   const first = cand.name.split(/\s+/)[0] || cand.name;
   const [to, setTo] = useState(extractEmail(cand.cvText));
+  const [phone, setPhone] = useState(toWaNumber(extractPhone(cand.cvText)));
   const [type, setType] = useState<MailType>("contacto");
   const [modo, setModo] = useState<"presencial" | "online">("presencial");
   const [subject, setSubject] = useState("");
@@ -4009,6 +4032,11 @@ function MailComposer({
     )}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.open(url, "_blank");
   }
+  function openWhatsApp() {
+    const num = phone.replace(/\D/g, "");
+    if (!num) return;
+    window.open(`https://wa.me/${num}?text=${encodeURIComponent(body)}`, "_blank");
+  }
 
   const TYPES: [MailType, string][] = [
     ["contacto", "Contacto"],
@@ -4114,6 +4142,15 @@ function MailComposer({
             <p className="mail-warn">No encontré el mail en el CV — cargalo a mano para enviarlo.</p>
           )}
           <label className="mail-field">
+            WhatsApp (con código de país)
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="5491112345678"
+            />
+          </label>
+          <label className="mail-field">
             Asunto
             <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)} />
           </label>
@@ -4189,6 +4226,14 @@ function MailComposer({
             </button>
             <button className="btn btn-ghost" onClick={openGmail} disabled={!to || sending}>
               ✉️ Abrir en Gmail
+            </button>
+            <button
+              className="btn btn-ghost"
+              onClick={openWhatsApp}
+              disabled={!phone}
+              title="Abrir WhatsApp con el mensaje y el número del candidato"
+            >
+              📱 WhatsApp
             </button>
             <button className="btn btn-primary" onClick={doSend} disabled={!to || sending}>
               {sending ? (
