@@ -1044,6 +1044,17 @@ export default function Home() {
     void scanAvisos(scanMonths);
   }
 
+  // Crear una búsqueda a mano (para avisos de otras plataformas que no llegan al
+  // mail). Después se le suben los CVs con «+ Agregar CV (archivo)».
+  function createManualJob() {
+    const title = window.prompt("Nombre de la nueva búsqueda (aviso):");
+    if (!title?.trim()) return;
+    const j = newJob(title.trim(), new Date().toISOString());
+    setJobs((prev) => [...prev, j]);
+    setActiveTab(j.id);
+    showToast("Búsqueda creada. Cargá los CVs con «+ Agregar CV (archivo)».");
+  }
+
   // Paso 1 (liviano): busca qué avisos hay en Gmail en el período elegido.
   async function scanAvisos(months: number) {
     setScanning(true);
@@ -1854,16 +1865,36 @@ export default function Home() {
         </div>
       )}
 
-      {/* Entrada (nada elegido): botón grande. No se muestran los avisos todavía. */}
+      {/* Entrada: lista de búsquedas + acciones. */}
       {activeTab === "" && (
-        <div className="entry-cta">
-          <button className="btn btn-primary btn-xl" onClick={openScanModal}>
-            ⟳ {jobs.length === 0 ? "Importar de Gmail" : "Nueva búsqueda"}
-          </button>
-          {jobs.length === 0 && (
-            <p className="empty" style={{ marginTop: 4 }}>
-              Elegí uno de tus avisos de ZonaJobs y traé los CVs.
+        <div className="home">
+          <div className="home-actions">
+            <button className="btn btn-primary" onClick={openScanModal}>
+              ⟳ Buscar avisos nuevos
+            </button>
+            <button className="btn btn-ghost" onClick={createManualJob}>
+              + Crear búsqueda manual
+            </button>
+          </div>
+          {jobs.length === 0 ? (
+            <p className="empty" style={{ marginTop: 12 }}>
+              Todavía no hay búsquedas. Tocá «Buscar avisos nuevos» para traer CVs de Gmail, o «Crear
+              búsqueda manual» para cargarlos a mano.
             </p>
+          ) : (
+            <div className="home-jobs">
+              {[...jobs]
+                .sort((a, b) => (a.firstDate < b.firstDate ? 1 : -1))
+                .map((j) => (
+                  <button key={j.id} className="home-job" onClick={() => setActiveTab(j.id)}>
+                    <span className="home-job-title">{j.title}</span>
+                    <span className="home-job-sub">
+                      {j.candidates.length} candidato{j.candidates.length !== 1 ? "s" : ""}
+                      {j.firstDate ? ` · primer CV ${shortDate(j.firstDate)}` : ""}
+                    </span>
+                  </button>
+                ))}
+            </div>
           )}
         </div>
       )}
@@ -1883,8 +1914,11 @@ export default function Home() {
                     : ""}
           </span>
           <div className="aviso-nav-actions">
+            <button className="btn btn-ghost tab-new-btn" onClick={createManualJob}>
+              + Manual
+            </button>
             <button className="btn btn-ghost tab-new-btn" onClick={openScanModal}>
-              + Nueva búsqueda
+              ⟳ Buscar avisos
             </button>
           </div>
         </div>
