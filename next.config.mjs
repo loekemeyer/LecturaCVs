@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Librerías de servidor que no deben empaquetarse (IMAP + armado de PDF).
-  serverExternalPackages: ["imapflow", "mailparser", "pdf-lib"],
+  // Librerías de servidor que no deben empaquetarse (lectura de correo IMAP).
+  serverExternalPackages: ["imapflow", "mailparser"],
 };
 
 export default nextConfig;

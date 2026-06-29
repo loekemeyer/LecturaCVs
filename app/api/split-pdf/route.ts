@@ -1,7 +1,7 @@
-// Separa un PDF que contiene varios CVs (con un "Índice" en la página 1, como el
-// exportado de candidatos) en un PDF por candidato. Devuelve [{name, base64}].
-// Usa `unpdf` (pensado para serverless) para el texto y `pdf-lib` para cortar.
-// Imports dinámicos + try/catch: si algo falla, devuelve {single:true} (nunca 500).
+// Separa un PDF que contiene varios CVs (con un "Índice" en la página 1) en el
+// TEXTO de cada CV. Devuelve [{name, text}] (o {single:true, text} si es un solo CV).
+// Los candidatos quedan PENDIENTES; se evalúan después con "Evaluar candidatos".
+// Usa `unpdf` (compatible con serverless). Import dinámico + try/catch: nunca 500.
 import { isAuthorized, unauthorized } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -42,35 +42,33 @@ export async function POST(req: Request) {
 
   try {
     const { getDocumentProxy, extractText } = await import("unpdf");
-    const { PDFDocument } = await import("pdf-lib");
-
-    // 1) Texto de la página 1 (índice).
-    const pdf = await getDocumentProxy(new Uint8Array(ab.slice(0)));
+    const pdf = await getDocumentProxy(new Uint8Array(ab));
     const numPages = pdf.numPages as number;
     const extracted = await extractText(pdf, { mergePages: false });
-    const pages = (Array.isArray(extracted.text) ? extracted.text : [String(extracted.text)]) as string[];
-    const text = (pages[0] || "").replace(/\s+/g, " ").trim();
-    const entries = parseIndex(text);
-    if (entries.length < 2) return Response.json({ single: true });
+    const pages = (
+      Array.isArray(extracted.text) ? extracted.text : [String(extracted.text)]
+    ) as string[];
 
-    // 2) Un PDF por candidato (desde su página de inicio hasta antes del siguiente).
-    const src = await PDFDocument.load(new Uint8Array(ab.slice(0)));
-    const cvs: { name: string; base64: string }[] = [];
+    const indexText = (pages[0] || "").replace(/\s+/g, " ").trim();
+    const entries = parseIndex(indexText);
+
+    // No es un paquete con índice → un solo CV (devolvemos su texto completo).
+    if (entries.length < 2) {
+      const whole = pages.join("\n\n").trim();
+      return Response.json({ single: true, text: whole });
+    }
+
+    const cvs: { name: string; text: string }[] = [];
     for (let k = 0; k < entries.length; k++) {
       const start = entries[k].page; // 1-indexed
       const end = k + 1 < entries.length ? entries[k + 1].page - 1 : numPages;
-      if (start < 1 || end < start || start > numPages) continue;
-      const indices: number[] = [];
-      for (let p = start; p <= Math.min(end, numPages); p++) indices.push(p - 1);
-      const out = await PDFDocument.create();
-      const copied = await out.copyPages(src, indices);
-      copied.forEach((pg) => out.addPage(pg));
-      const saved = await out.save();
-      cvs.push({ name: entries[k].name, base64: Buffer.from(saved).toString("base64") });
+      if (start < 1 || end < start) continue;
+      const text = pages.slice(start - 1, Math.min(end, numPages)).join("\n\n").trim();
+      cvs.push({ name: entries[k].name, text });
     }
     return Response.json({ single: false, count: cvs.length, cvs });
   } catch (err) {
     console.error("Error al separar el PDF:", err);
-    return Response.json({ single: true });
+    return Response.json({ single: true, text: "" });
   }
 }

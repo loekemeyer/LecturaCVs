@@ -1476,15 +1476,25 @@ export default function Home() {
     })();
   }
 
-  function base64ToBlob(b64: string, type: string): Blob {
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return new Blob([bytes], { type });
+  // Agrega candidatos PENDIENTES (sin evaluar) a partir del texto del CV.
+  function addPendingCandidates(jobId: string, items: { name: string; cvText: string }[]) {
+    const cands: Candidate[] = items.map((it) => ({
+      id: genId(),
+      source: "upload",
+      name: it.name?.trim() || "Desconocido",
+      cvText: it.cvText,
+      expectedSalary: "",
+      date: new Date().toISOString(),
+      status: "nuevo",
+      scoreStatus: "pending",
+    }));
+    setJobs((prev) =>
+      prev.map((j) => (j.id === jobId ? { ...j, candidates: [...j.candidates, ...cands] } : j)),
+    );
   }
 
-  // Sube archivos. Si un PDF contiene varios CVs (índice de ZonaJobs/exportado),
-  // lo separa automáticamente en un candidato por CV.
+  // Sube archivos. Los PDF se SEPARAN (si traen varios CVs) y quedan PENDIENTES:
+  // NO se evalúan al cargar; los evaluás vos con «Evaluar candidatos».
   async function addFilesToJob(jobId: string, list: FileList | File[]) {
     const supported = Array.from(list).filter(isSupportedFile);
     for (const file of supported) {
@@ -1497,16 +1507,28 @@ export default function Home() {
           if (res.status === 401) onAuthFail();
           const data = await res.json().catch(() => ({}));
           if (res.ok && data.single === false && Array.isArray(data.cvs) && data.cvs.length > 0) {
-            showToast(`Separé ${data.cvs.length} CVs del PDF. Evaluando…`);
-            for (const cv of data.cvs as { name: string; base64: string }[]) {
-              scoreUploadedFile(jobId, base64ToBlob(cv.base64, "application/pdf"), cv.name);
-            }
+            addPendingCandidates(
+              jobId,
+              (data.cvs as { name: string; text: string }[]).map((cv) => ({
+                name: cv.name,
+                cvText: cv.text,
+              })),
+            );
+            showToast(`Separé ${data.cvs.length} CVs del PDF. Tocá «Evaluar candidatos».`);
+            continue;
+          }
+          if (res.ok && data.single === true && typeof data.text === "string" && data.text.trim()) {
+            addPendingCandidates(jobId, [
+              { name: file.name.replace(/\.pdf$/i, ""), cvText: data.text },
+            ]);
+            showToast("CV agregado. Tocá «Evaluar candidatos».");
             continue;
           }
         } catch {
-          /* si falla la separación, lo subimos como un solo CV */
+          /* si falla, cae al modo archivo directo abajo */
         }
       }
+      // Imágenes (o PDF escaneado sin texto): evaluación directa del archivo.
       scoreUploadedFile(jobId, file, file.name);
     }
   }
