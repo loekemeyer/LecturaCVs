@@ -70,6 +70,8 @@ type Job = {
   filters?: JobFilters;
   /** Columnas (etapas) del tablero kanban de esta búsqueda. Si falta, se usan las de por defecto. */
   stages?: Stage[];
+  /** Área del bot de WhatsApp a la que corresponde esta búsqueda (id de bot_areas). */
+  botArea?: string;
 };
 
 const STORAGE_KEY = "lecturacvs:ats:v1";
@@ -153,6 +155,14 @@ const DEFAULT_STAGES: Stage[] = [
   { id: "descartados", label: "Descartados" },
 ];
 const stagesOf = (job: Job): Stage[] => (job.stages?.length ? job.stages : DEFAULT_STAGES);
+
+// Áreas fijas del bot de WhatsApp (coinciden con el selector 1-4).
+const BOT_AREAS: { id: string; label: string }[] = [
+  { id: "pasantia", label: "Pasantía Administrativa" },
+  { id: "administracion", label: "Administración" },
+  { id: "diseno", label: "Diseño Gráfico" },
+  { id: "operario", label: "Operario" },
+];
 
 // ¿Hay algún filtro activo? (sirve para avisar cuántos candidatos quedan ocultos).
 function filtersActive(f: JobFilters): boolean {
@@ -1582,6 +1592,32 @@ export default function Home() {
     }
   }
 
+  // Inicia una evaluación por WhatsApp para un candidato (manda el 1er mensaje).
+  async function startWaEval(jobId: string, cand: Candidate) {
+    const guess = toWaNumber(extractPhone(cand.cvText));
+    const phone = window.prompt(
+      `Iniciar evaluación por WhatsApp de ${cand.name}.\nNúmero (con código de país):`,
+      guess,
+    );
+    if (!phone) return;
+    try {
+      const res = await fetch("/api/whatsapp/start", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ candidateId: cand.id, searchId: jobId, phone }),
+      });
+      if (res.status === 401) {
+        onAuthFail();
+        return;
+      }
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) showToast("Evaluación iniciada por WhatsApp ✓");
+      else showToast("No se pudo iniciar: " + (d?.error || "error"));
+    } catch (e) {
+      showToast("No se pudo iniciar: " + (e instanceof Error ? e.message : "error de red"));
+    }
+  }
+
   // ---------- derivados ----------
   // Detalle del gasto estimado: CVs evaluados agrupados por aviso y por día.
   // (Es un estimado: cantidad de CVs evaluados × costo por CV del modelo.)
@@ -1779,6 +1815,14 @@ export default function Home() {
             <span className="profile-btn-text">Buscar</span>
           </button>
           <button
+            className={`profile-btn${activeTab === "wabot" ? " active" : ""}`}
+            onClick={() => setActiveTab((cur) => (cur === "wabot" ? "" : "wabot"))}
+            title="Bot de WhatsApp (preguntas y evaluaciones)"
+          >
+            <span className="profile-btn-icon">🤖</span>
+            <span className="profile-btn-text">Bot</span>
+          </button>
+          <button
             className={`profile-btn${activeTab === "perfil" ? " active" : ""}`}
             onClick={toggleProfile}
             title="Mi perfil"
@@ -1834,7 +1878,9 @@ export default function Home() {
                 ? "📊 Panel general"
                 : activeTab === "buscar"
                   ? "🔎 Buscador global"
-                  : ""}
+                  : activeTab === "wabot"
+                    ? "🤖 Bot de WhatsApp"
+                    : ""}
           </span>
           <div className="aviso-nav-actions">
             <button className="btn btn-ghost tab-new-btn" onClick={openScanModal}>
@@ -1851,6 +1897,9 @@ export default function Home() {
       {activeTab === "buscar" && (
         <GlobalSearch jobs={jobs} onOpenJob={(id) => setActiveTab(id)} onViewCv={openCv} />
       )}
+
+      {/* bot de WhatsApp: preguntas por área + evaluaciones */}
+      {activeTab === "wabot" && <WaBot jobs={jobs} authHeaders={authHeaders} />}
 
       {/* mi perfil: sedes laborales + asignación por aviso */}
       {activeTab === "perfil" && (
@@ -1996,6 +2045,27 @@ export default function Home() {
                 </p>
               </>
             )}
+
+            <div className="paso-row" style={{ marginTop: 12 }}>
+              <span className="paso">Bot</span>
+              <span className="paso-desc">Área del bot de WhatsApp (para las preguntas)</span>
+            </div>
+            <select
+              className="sede-select"
+              value={activeJob.botArea ?? ""}
+              onChange={(e) => patchJob(activeJob.id, { botArea: e.target.value || undefined })}
+            >
+              <option value="">(sin área)</option>
+              {BOT_AREAS.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+            <p className="field-hint">
+              Define qué preguntas usa el bot por defecto para los candidatos de esta búsqueda (el
+              candidato igual puede cambiarla con el selector).
+            </p>
 
             <details className="criteria-box">
               <summary>
@@ -2277,6 +2347,7 @@ export default function Home() {
                 onViewCv={openCv}
                 onNotes={(candId, t) => patchCandidate(activeJob.id, candId, { notes: t })}
                 onSendMail={(cand) => setMailCand({ jobId: activeJob.id, cand })}
+                onStartWa={(cand) => startWaEval(activeJob.id, cand)}
               />
             ) : (
               <>
@@ -3637,6 +3708,7 @@ function Board({
   onViewCv,
   onNotes,
   onSendMail,
+  onStartWa,
 }: {
   job: Job;
   stages: Stage[];
@@ -3649,6 +3721,7 @@ function Board({
   onViewCv: (c: { name: string; emailUid?: number; cvText?: string }) => void;
   onNotes: (candId: string, t: string) => void;
   onSendMail: (cand: Candidate) => void;
+  onStartWa: (cand: Candidate) => void;
 }) {
   const onBoard = job.candidates.filter((c) => c.stageId);
   const byStage = (sid: string) =>
@@ -3754,6 +3827,13 @@ function Board({
                         onClick={() => onSendMail(c)}
                       >
                         ✉️ Enviar mail
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        title="Iniciar evaluación por WhatsApp"
+                        onClick={() => onStartWa(c)}
+                      >
+                        🤖
                       </button>
                       <button
                         className="icon-btn"
@@ -4248,6 +4328,258 @@ function MailComposer({
         </div>
       </div>
     </div>
+  );
+}
+
+// Bot de WhatsApp: editar las preguntas por área + ver las evaluaciones.
+interface AreaCfg {
+  id: string;
+  label: string;
+  position: number;
+  questions: { q: string }[];
+  excel_message: string | null;
+  final_message: string | null;
+  enabled: boolean;
+}
+interface BotSess {
+  id: string;
+  candidate_id: string;
+  area: string | null;
+  status: string;
+  score: number | null;
+  excel_score: number | null;
+  answers: { q: string; a: string }[];
+  excel_detail?: {
+    summary?: string;
+    total?: number;
+    max?: number;
+    dimensions?: { name: string; score: number; max: number; justification: string }[];
+  } | null;
+}
+
+function WaBot({
+  jobs,
+  authHeaders,
+}: {
+  jobs: Job[];
+  authHeaders: () => Record<string, string>;
+}) {
+  const [areas, setAreas] = useState<AreaCfg[]>([]);
+  const [initial, setInitial] = useState("");
+  const [sessions, setSessions] = useState<BotSess[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [openSess, setOpenSess] = useState<string | null>(null);
+  const [flash, setFlash] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [aRes, sRes] = await Promise.all([
+          fetch("/api/whatsapp/areas", { headers: authHeaders() }),
+          fetch("/api/whatsapp/sessions", { headers: authHeaders() }),
+        ]);
+        const a = await aRes.json().catch(() => ({}));
+        const s = await sRes.json().catch(() => ({}));
+        setAreas(Array.isArray(a.areas) ? a.areas : []);
+        setInitial(a.initialMessage || "");
+        setSessions(Array.isArray(s.sessions) ? s.sessions : []);
+      } finally {
+        setLoading(false);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    })();
+  }, []);
+
+  const candName = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const j of jobs) for (const c of j.candidates) m.set(c.id, c.name);
+    return m;
+  }, [jobs]);
+  const areaLabel = (id: string | null) =>
+    BOT_AREAS.find((a) => a.id === id)?.label || id || "—";
+
+  function notify(t: string) {
+    setFlash(t);
+    window.setTimeout(() => setFlash(""), 2500);
+  }
+  function setArea(id: string, patch: Partial<AreaCfg>) {
+    setAreas((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+  }
+  async function saveArea(a: AreaCfg) {
+    await fetch("/api/whatsapp/areas", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ area: a }),
+    });
+    notify(`«${a.label}» guardada ✓`);
+  }
+  async function saveInitial() {
+    await fetch("/api/whatsapp/areas", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ initialMessage: initial }),
+    });
+    notify("Mensaje inicial guardado ✓");
+  }
+
+  if (loading) {
+    return (
+      <section className="card">
+        <span className="spinner" /> Cargando…
+      </section>
+    );
+  }
+
+  return (
+    <>
+      {flash && <div className="toast">{flash}</div>}
+
+      <section className="card">
+        <h2 style={{ margin: 0 }}>🤖 Bot de WhatsApp</h2>
+        <p className="field-hint" style={{ marginTop: 6 }}>
+          Acá editás el <strong>primer mensaje</strong> (selector de área) y las <strong>preguntas</strong> de
+          cada área. El bot manda solo la pregunta, una por una.
+        </p>
+        <h4>Mensaje inicial (selector de área)</h4>
+        <textarea
+          className="posting-input"
+          rows={6}
+          value={initial}
+          onChange={(e) => setInitial(e.target.value)}
+        />
+        <button className="btn btn-primary" style={{ marginTop: 8 }} onClick={saveInitial}>
+          Guardar mensaje inicial
+        </button>
+        <p className="field-hint">
+          Ojo: este texto debe coincidir con la <strong>plantilla aprobada</strong> por Meta (es el
+          primer mensaje).
+        </p>
+      </section>
+
+      {areas
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .map((a) => (
+          <section className="card" key={a.id}>
+            <div className="results-toolbar">
+              <h3 style={{ margin: 0 }}>
+                {a.position}. {a.label}
+              </h3>
+              <label className="cf-field" style={{ gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={a.enabled}
+                  onChange={(e) => setArea(a.id, { enabled: e.target.checked })}
+                />
+                Activa
+              </label>
+            </div>
+            <h4>Preguntas ({a.questions?.length || 0})</h4>
+            {(a.questions || []).map((qq, i) => (
+              <div className="wabot-q" key={i}>
+                <span className="wabot-qn">{i + 1}</span>
+                <textarea
+                  rows={2}
+                  value={qq.q}
+                  onChange={(e) => {
+                    const qs = [...a.questions];
+                    qs[i] = { q: e.target.value };
+                    setArea(a.id, { questions: qs });
+                  }}
+                />
+                <button
+                  className="icon-btn"
+                  title="Quitar"
+                  onClick={() => setArea(a.id, { questions: a.questions.filter((_, k) => k !== i) })}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setArea(a.id, { questions: [...(a.questions || []), { q: "" }] })}
+            >
+              + Agregar pregunta
+            </button>
+            <h4 style={{ marginTop: 12 }}>Mensaje al enviar el Excel</h4>
+            <textarea
+              className="posting-input"
+              rows={3}
+              value={a.excel_message || ""}
+              onChange={(e) => setArea(a.id, { excel_message: e.target.value })}
+            />
+            <h4 style={{ marginTop: 12 }}>Mensaje final</h4>
+            <textarea
+              className="posting-input"
+              rows={3}
+              value={a.final_message || ""}
+              onChange={(e) => setArea(a.id, { final_message: e.target.value })}
+            />
+            <div style={{ marginTop: 10 }}>
+              <button className="btn btn-primary" onClick={() => saveArea(a)}>
+                Guardar «{a.label}»
+              </button>
+            </div>
+          </section>
+        ))}
+
+      <section className="card">
+        <div className="results-toolbar">
+          <h2 style={{ margin: 0 }}>📊 Evaluaciones</h2>
+          <span className="count">{sessions.length}</span>
+        </div>
+        {sessions.length === 0 ? (
+          <p className="empty">Todavía no hay evaluaciones por WhatsApp.</p>
+        ) : (
+          <div className="wabot-sessions">
+            {sessions.map((s) => (
+              <div className="wabot-sess" key={s.id}>
+                <div
+                  className="wabot-sess-head"
+                  onClick={() => setOpenSess((o) => (o === s.id ? null : s.id))}
+                >
+                  <span className="wabot-sess-name">{candName.get(s.candidate_id) || s.candidate_id}</span>
+                  <span className="wabot-sess-area">{areaLabel(s.area)}</span>
+                  <span className={`wabot-sess-status st-${s.status}`}>{s.status}</span>
+                  <span className="wabot-sess-score">
+                    {s.excel_score != null ? `Excel ${s.excel_score}/10` : ""}
+                  </span>
+                  <span className="chevron">▾</span>
+                </div>
+                {openSess === s.id && (
+                  <div className="wabot-sess-body">
+                    {(s.answers || []).map((qa, i) => (
+                      <div className="wabot-qa" key={i}>
+                        <div className="wabot-qa-q">{qa.q}</div>
+                        <div className="wabot-qa-a">{qa.a}</div>
+                      </div>
+                    ))}
+                    {s.excel_detail && (
+                      <div className="wabot-excel">
+                        <h4>Prueba de Excel — {s.excel_detail.total ?? s.excel_score}/{s.excel_detail.max ?? 10}</h4>
+                        {s.excel_detail.summary && <p className="why">{s.excel_detail.summary}</p>}
+                        {(s.excel_detail.dimensions || []).map((d, i) => (
+                          <div className="crit" key={i}>
+                            <div className="crit-top">
+                              <span className="cname">{d.name}</span>
+                              <span className="cscore">
+                                {d.score}/{d.max}
+                              </span>
+                            </div>
+                            <p className="why">{d.justification}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </>
   );
 }
 

@@ -2237,6 +2237,102 @@ select.status-select.cal-descartado {
   color: #166534;
   font-weight: 600;
 }
+
+/* ---------- bot de WhatsApp ---------- */
+.wabot-q {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.wabot-qn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 6px;
+}
+.wabot-q textarea {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  resize: vertical;
+}
+.wabot-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.wabot-sess {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.wabot-sess-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.wabot-sess-name {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wabot-sess-area {
+  font-size: 13px;
+  color: var(--text-soft, #555);
+}
+.wabot-sess-status {
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: #f1f5f9;
+  color: #475569;
+}
+.wabot-sess-score {
+  font-size: 13px;
+  font-weight: 700;
+  color: #166534;
+}
+.wabot-sess-body {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border, #eef2f7);
+  background: #fafafa;
+}
+.wabot-qa {
+  margin-bottom: 10px;
+}
+.wabot-qa-q {
+  font-size: 13px;
+  color: var(--text-soft, #555);
+  white-space: pre-wrap;
+}
+.wabot-qa-a {
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+.wabot-excel {
+  margin-top: 8px;
+  border-top: 1px dashed var(--border, #e2e8f0);
+  padding-top: 8px;
+}
 .booking-input {
   font: inherit;
   font-size: 14px;

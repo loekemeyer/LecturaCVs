@@ -24,6 +24,7 @@ interface JobLike {
   filters?: unknown;
   stages?: unknown;
   sortIndex?: number;
+  botArea?: string;
   candidates?: CandLike[];
 }
 
@@ -63,6 +64,7 @@ function jobToRow(j: JobLike): Row {
     filters: j.filters ?? null,
     stages: j.stages ?? null,
     sort_index: j.sortIndex ?? 0,
+    bot_area: j.botArea ?? null,
     updated_at: nowIso(),
   };
 }
@@ -83,6 +85,7 @@ function rowToJob(r: Row, candidates: CandLike[]): JobLike {
     filters: r.filters ?? undefined,
     stages: r.stages ?? undefined,
     sortIndex: (r.sort_index as number) ?? 0,
+    botArea: (r.bot_area as string) ?? undefined,
     candidates,
   };
 }
