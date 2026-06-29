@@ -1,12 +1,23 @@
-// Motor del bot de reclutamiento por WhatsApp: maneja la conversación (5 preguntas
-// por puesto), guarda las respuestas y deja el estado listo para puntuar.
-// La puntuación con IA y el módulo Excel se enchufan en una etapa siguiente.
+// Motor del bot de reclutamiento por WhatsApp.
+// Flujo: 1er mensaje (plantilla) = saludo + selector de área (1-4). El candidato
+// elige → corremos las preguntas de ESA área (tabla bot_areas) → al final mandamos
+// el Excel y, al recibirlo resuelto, el mensaje final. Las preguntas se editan en
+// la app (por área). El área arranca por la búsqueda pero el candidato la confirma.
 import { supabaseAdmin } from "./supabase";
 import { sendText, sendTemplate, sendDocumentByLink, downloadMedia } from "./whatsapp";
 
 export interface BotQuestion {
   q: string;
-  type?: string; // "abierta" | "si_no" | etc. (informativo por ahora)
+}
+
+interface AreaRow {
+  id: string;
+  label: string;
+  position: number;
+  questions: BotQuestion[];
+  excel_message: string | null;
+  final_message: string | null;
+  enabled: boolean;
 }
 
 interface SessionRow {
@@ -16,6 +27,7 @@ interface SessionRow {
   phone: string;
   status: string;
   current_index: number;
+  area: string | null;
   answers: { q: string; a: string; at: string }[];
 }
 
@@ -33,15 +45,28 @@ async function activeSession(phone: string): Promise<SessionRow | null> {
   return (data as SessionRow | null) ?? null;
 }
 
-async function questionsFor(searchId: string | null): Promise<BotQuestion[]> {
-  if (!searchId) return [];
+async function areaById(id: string | null): Promise<AreaRow | null> {
+  if (!id) return null;
+  const { data } = await supabaseAdmin().from("bot_areas").select("*").eq("id", id).maybeSingle();
+  return (data as AreaRow | null) ?? null;
+}
+
+async function areaByPosition(pos: number): Promise<AreaRow | null> {
   const { data } = await supabaseAdmin()
-    .from("searches")
-    .select("bot_questions")
-    .eq("id", searchId)
+    .from("bot_areas")
+    .select("*")
+    .eq("position", pos)
     .maybeSingle();
-  const q = (data as { bot_questions?: unknown } | null)?.bot_questions;
-  return Array.isArray(q) ? (q as BotQuestion[]) : [];
+  return (data as AreaRow | null) ?? null;
+}
+
+async function initialMessage(): Promise<string> {
+  const { data } = await supabaseAdmin()
+    .from("app_settings")
+    .select("bot_initial_message")
+    .eq("id", "default")
+    .maybeSingle();
+  return (data as { bot_initial_message?: string } | null)?.bot_initial_message || "";
 }
 
 async function logMsg(sessionId: string, phone: string, direction: "in" | "out", body: string) {
@@ -52,10 +77,15 @@ async function patch(id: string, p: Record<string, unknown>) {
   await supabaseAdmin().from("bot_sessions").update({ ...p, updated_at: nowIso() }).eq("id", id);
 }
 
-async function ask(s: SessionRow, qs: BotQuestion[], index: number) {
-  const text = `Pregunta ${index + 1} de ${qs.length}:\n\n${qs[index].q}`;
+async function say(s: SessionRow, text: string) {
   await sendText(s.phone, text);
   await logMsg(s.id, s.phone, "out", text);
+}
+
+// Arranca las preguntas de un área (manda la primera).
+async function startQuestions(s: SessionRow, area: AreaRow) {
+  await patch(s.id, { area: area.id, status: "in_progress", current_index: 0 });
+  await say({ ...s }, area.questions[0].q);
 }
 
 export interface InboundMsg {
@@ -68,7 +98,7 @@ export interface InboundMsg {
 export async function handleInbound(msg: InboundMsg): Promise<void> {
   const phone = msg.from;
   const s = await activeSession(phone);
-  if (!s) return; // no hay evaluación activa para este número
+  if (!s) return; // sin evaluación activa para este número
   await logMsg(
     s.id,
     phone,
@@ -76,48 +106,52 @@ export async function handleInbound(msg: InboundMsg): Promise<void> {
     msg.text || (msg.documentId ? `[documento ${msg.documentName || ""}]` : "[mensaje]"),
   );
 
-  const qs = await questionsFor(s.search_id);
-
-  // 1) Recién arranca: el candidato respondió a la plantilla → primera pregunta.
+  // 1) Selector de área (estado pending): esperamos un número 1-4.
   if (s.status === "pending") {
-    if (qs.length === 0) {
-      await sendText(phone, "¡Gracias por tu interés! En breve te contactamos.");
-      await patch(s.id, { status: "completed", completed_at: nowIso() });
+    const pick = (msg.text || "").match(/[1-4]/)?.[0];
+    if (!pick) {
+      const sel = await initialMessage();
+      await say(s, sel || "Por favor, respondé con el número del área (1, 2, 3 o 4).");
       return;
     }
-    await patch(s.id, { status: "in_progress", current_index: 0 });
-    await sendText(phone, "¡Perfecto, arrancamos! Son unas preguntas cortas.");
-    await ask(s, qs, 0);
+    const area = await areaByPosition(Number(pick));
+    if (!area || !area.enabled) {
+      await say(s, "Esa opción no está disponible. Respondé con el número del área (1, 2, 3 o 4).");
+      return;
+    }
+    if (!Array.isArray(area.questions) || area.questions.length === 0) {
+      await say(
+        s,
+        `Por ahora no tenemos preguntas cargadas para ${area.label}. En breve te contactamos. ¡Gracias!`,
+      );
+      await patch(s.id, { area: area.id, status: "completed", completed_at: nowIso() });
+      return;
+    }
+    await startQuestions(s, area);
     return;
   }
 
   // 2) En curso: guardamos la respuesta y avanzamos.
   if (s.status === "in_progress" && msg.text) {
+    const area = await areaById(s.area);
+    const qs = area?.questions ?? [];
     const answers = Array.isArray(s.answers) ? s.answers : [];
     const idx = s.current_index;
     answers.push({ q: qs[idx]?.q || "", a: msg.text, at: nowIso() });
     const next = idx + 1;
     if (next < qs.length) {
       await patch(s.id, { answers, current_index: next });
-      await ask({ ...s }, qs, next);
+      await say({ ...s }, qs[next].q);
     } else {
-      // Terminó las preguntas. Si hay Excel configurado, lo mandamos.
       const excel = process.env.RECRUIT_EXCEL_URL;
       if (excel) {
         await patch(s.id, { answers, status: "awaiting_excel" });
-        await sendDocumentByLink(
-          phone,
-          excel,
-          "Prueba Excel.xlsx",
-          "Resolvé esta prueba y reenviá el archivo por este chat. En una hoja está el ejercicio y en otra la explicación.",
-        );
-        await sendText(phone, "Cuando lo tengas, mandá el Excel resuelto por acá. ¡Gracias!");
+        const cap = area?.excel_message || "Resolvé esta prueba y reenviá el archivo por este chat.";
+        await sendDocumentByLink(phone, excel, "Prueba Excel.xlsx", cap);
+        await logMsg(s.id, phone, "out", "[documento Excel]");
       } else {
         await patch(s.id, { answers, status: "completed", completed_at: nowIso() });
-        await sendText(
-          phone,
-          "¡Listo! Terminamos por ahora. Gracias por responder, te contactamos por los próximos pasos.",
-        );
+        await say({ ...s }, area?.final_message || "¡Gracias por tus respuestas! Te contactamos pronto.");
       }
     }
     return;
@@ -125,30 +159,32 @@ export async function handleInbound(msg: InboundMsg): Promise<void> {
 
   // 3) Esperando el Excel resuelto.
   if (s.status === "awaiting_excel" && msg.documentId) {
+    const area = await areaById(s.area);
     try {
       const media = await downloadMedia(msg.documentId);
-      const path = `${s.id}/${media.filename}`;
-      // Guardado y corrección automática se completan en la etapa del módulo Excel.
       await patch(s.id, {
-        excel_path: path,
-        excel_detail: { mediaId: msg.documentId, filename: media.filename, bytes: media.buffer.length },
+        excel_path: `${s.id}/${media.filename}`,
+        excel_detail: {
+          mediaId: msg.documentId,
+          filename: media.filename,
+          bytes: media.buffer.length,
+        },
         status: "completed",
         completed_at: nowIso(),
       });
-      await sendText(phone, "¡Recibido! Gracias, ya lo revisamos y te contactamos. 👍");
+      await say({ ...s }, area?.final_message || "¡Recibido! Gracias, te contactamos pronto. 👍");
     } catch {
-      await sendText(phone, "No pude recibir el archivo, ¿lo reenviás como documento de Excel?");
+      await say(s, "No pude recibir el archivo, ¿lo reenviás como documento de Excel?");
     }
     return;
   }
 
-  // Fuera de flujo.
   if (msg.text) {
-    await sendText(phone, "Gracias por tu mensaje. Seguí las indicaciones que te enviamos para continuar.");
+    await say(s, "Gracias por tu mensaje. Seguí las indicaciones que te enviamos para continuar.");
   }
 }
 
-/** Crea una sesión y manda el primer mensaje (plantilla aprobada). */
+/** Crea una sesión y manda el primer mensaje (plantilla con el selector de área). */
 export async function startSession(opts: {
   candidateId: string;
   searchId: string;
@@ -156,6 +192,16 @@ export async function startSession(opts: {
   templateName?: string;
   params?: string[];
 }): Promise<string> {
+  // Área por defecto según la búsqueda (el candidato igual la confirma con el selector).
+  let defaultArea: string | null = null;
+  if (opts.searchId) {
+    const { data } = await supabaseAdmin()
+      .from("searches")
+      .select("bot_area")
+      .eq("id", opts.searchId)
+      .maybeSingle();
+    defaultArea = (data as { bot_area?: string } | null)?.bot_area || null;
+  }
   const id = `${opts.candidateId}-${Date.now()}`;
   await supabaseAdmin().from("bot_sessions").insert({
     id,
@@ -164,6 +210,7 @@ export async function startSession(opts: {
     phone: opts.phone,
     status: "pending",
     current_index: 0,
+    area: defaultArea,
     answers: [],
   });
   const tpl = opts.templateName || process.env.RECRUIT_WA_TEMPLATE;
