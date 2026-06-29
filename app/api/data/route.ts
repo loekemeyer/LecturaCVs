@@ -215,6 +215,15 @@ export async function POST(req: Request) {
       return Response.json({ ok: true });
     }
 
+    if (action === "deleteCandidate") {
+      const id = String(body.id ?? "");
+      if (!id) return bad("Falta el id.");
+      const { error } = await sb.from("candidates").delete().eq("id", id);
+      if (error) throw error;
+      await bump("candidate", null, clientId);
+      return Response.json({ ok: true });
+    }
+
     if (action === "patchCandidate") {
       const searchId = String(body.searchId ?? "");
       const cand = body.candidate as CandLike;

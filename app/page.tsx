@@ -593,6 +593,12 @@ export default function Home() {
       for (const [searchId, list] of changedBySearch) {
         await dataApi({ action: "upsertCandidates", searchId, candidates: list });
       }
+      // Candidatos borrados (estaban antes y ya no están).
+      if (prev) {
+        for (const id of prev.cands.keys()) {
+          if (!cur.cands.has(id)) await dataApi({ action: "deleteCandidate", id });
+        }
+      }
       // Ajustes (sedes + valores de empresa).
       if (!prev || prev.settings !== cur.settings) {
         await dataApi({
@@ -939,6 +945,17 @@ export default function Home() {
           : { ...j, candidates: j.candidates.map((c) => (c.id === candId ? { ...c, ...patch } : c)) },
       ),
     );
+  }
+
+  // Borra un candidato de la búsqueda (y de la nube, vía la sincronización).
+  function deleteCandidate(jobId: string, candId: string) {
+    if (!window.confirm("¿Borrar este candidato? No se puede deshacer.")) return;
+    setJobs((prev) =>
+      prev.map((j) =>
+        j.id !== jobId ? j : { ...j, candidates: j.candidates.filter((c) => c.id !== candId) },
+      ),
+    );
+    showToast("Candidato borrado.");
   }
   function updateCriterion(jobId: string, critId: string, patch: Partial<CriterionDraft>) {
     setJobs((prev) =>
@@ -2535,6 +2552,7 @@ export default function Home() {
                     }}
                     onViewCv={openCv}
                     onReevaluate={() => reevaluateOne(activeJob.id, c.id)}
+                    onDelete={() => deleteCandidate(activeJob.id, c.id)}
                     onNotes={(t) => patchCandidate(activeJob.id, c.id, { notes: t })}
                     jobTitle={activeJob.title}
                     otherJobs={(candidateIndex.get(norm(c.name)) ?? []).filter(
@@ -2966,6 +2984,7 @@ function CandidateRow({
   onCalif,
   onViewCv,
   onReevaluate,
+  onDelete,
   pendingUndo,
   undoUntil,
   onUndo,
@@ -2985,6 +3004,7 @@ function CandidateRow({
   onCalif: (k: Calificacion) => void;
   onViewCv: (c: { name: string; emailUid?: number; cvText?: string }) => void;
   onReevaluate: () => void;
+  onDelete: () => void;
   pendingUndo?: boolean;
   undoUntil?: number;
   onUndo?: () => void;
@@ -3149,6 +3169,9 @@ function CandidateRow({
             )}
             <button className="btn btn-ghost" onClick={copyContactMessage}>
               {copied ? "✓ Mensaje copiado" : "💬 Copiar mensaje"}
+            </button>
+            <button className="btn btn-ghost" onClick={onDelete} title="Borrar este candidato">
+              🗑 Borrar
             </button>
             <label className="proc-status">
               Estado:
