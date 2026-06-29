@@ -1,8 +1,8 @@
 // Separa un PDF que contiene varios CVs (con un "Índice" en la página 1, como el
 // exportado de candidatos) en un PDF por candidato. Devuelve [{name, base64}].
+// Usa `unpdf` (pensado para serverless) para el texto y `pdf-lib` para cortar.
+// Imports dinámicos + try/catch: si algo falla, devuelve {single:true} (nunca 500).
 import { isAuthorized, unauthorized } from "@/lib/auth";
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
-import { PDFDocument } from "pdf-lib";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -12,7 +12,6 @@ interface Entry {
   page: number;
 }
 
-// Parsea el índice: "Apellido, Nombre pág. N" para cada candidato.
 function parseIndex(text: string): Entry[] {
   const i = text.indexOf("Índice");
   let body = i >= 0 ? text.slice(i + "Índice".length) : text;
@@ -39,21 +38,18 @@ export async function POST(req: Request) {
   }
   const file = form.get("file");
   if (!(file instanceof File)) return Response.json({ error: "Falta el archivo." }, { status: 400 });
-  // Copias independientes: pdfjs "consume" (detacha) su buffer, así que pdf-lib
-  // necesita el suyo aparte.
   const ab = await file.arrayBuffer();
 
   try {
+    const { getDocumentProxy, extractText } = await import("unpdf");
+    const { PDFDocument } = await import("pdf-lib");
+
     // 1) Texto de la página 1 (índice).
-    const doc = await getDocument({ data: new Uint8Array(ab.slice(0)), useSystemFonts: true }).promise;
-    const numPages = doc.numPages;
-    const page1 = await doc.getPage(1);
-    const tc = await page1.getTextContent();
-    const text = (tc.items as { str?: string }[])
-      .map((it) => it.str || "")
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
+    const pdf = await getDocumentProxy(new Uint8Array(ab.slice(0)));
+    const numPages = pdf.numPages as number;
+    const extracted = await extractText(pdf, { mergePages: false });
+    const pages = (Array.isArray(extracted.text) ? extracted.text : [String(extracted.text)]) as string[];
+    const text = (pages[0] || "").replace(/\s+/g, " ").trim();
     const entries = parseIndex(text);
     if (entries.length < 2) return Response.json({ single: true });
 
@@ -75,7 +71,6 @@ export async function POST(req: Request) {
     return Response.json({ single: false, count: cvs.length, cvs });
   } catch (err) {
     console.error("Error al separar el PDF:", err);
-    // Si algo falla, que el front lo trate como un solo CV.
     return Response.json({ single: true });
   }
 }
