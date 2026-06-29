@@ -111,10 +111,32 @@ export interface InboundMsg {
   documentName?: string;
 }
 
+// Autorespuesta para quien escribe al número sin una evaluación activa.
+// Editable por variable de entorno; si no, usa este texto por defecto.
+const AUTO_REPLY =
+  process.env.RECRUIT_AUTO_REPLY ||
+  `Hola!
+Soy el Asistente Virtual de Loekemeyer Srl
+Si deseas postularte, o saber el estado de tu postulación
+Escribe al siguiente mail: rrhhloeke@gmail.com`;
+
 export async function handleInbound(msg: InboundMsg): Promise<void> {
   const phone = msg.from;
-  const s = await activeSession(phone);
-  if (!s) return; // sin evaluación activa para este número
+  let s: SessionRow | null = null;
+  try {
+    s = await activeSession(phone);
+  } catch {
+    s = null;
+  }
+  if (!s) {
+    // Sin evaluación activa: enviamos la autorespuesta (redirige al mail).
+    try {
+      await sendText(phone, AUTO_REPLY);
+    } catch (err) {
+      console.error("No se pudo enviar la autorespuesta:", err);
+    }
+    return;
+  }
   await logMsg(
     s.id,
     phone,
