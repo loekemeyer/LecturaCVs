@@ -225,6 +225,16 @@ function fmtDay(d: string): string {
 // "administracion" encuentra "Administración").
 const stripAccents = (s: string) =>
   s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+
+// Clave de nombre tolerante al orden y la puntuación: "Alfonso, Noelia Pilar" y
+// "Noelia Pilar Alfonso" dan la misma clave (para detectar duplicados).
+const nameKey = (s: string) =>
+  stripAccents(s || "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .sort()
+    .join(" ");
 function hace(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
@@ -1476,9 +1486,26 @@ export default function Home() {
     })();
   }
 
-  // Agrega candidatos PENDIENTES (sin evaluar) a partir del texto del CV.
-  function addPendingCandidates(jobId: string, items: { name: string; cvText: string }[]) {
-    const cands: Candidate[] = items.map((it) => ({
+  // Agrega candidatos PENDIENTES (sin evaluar). Saltea los que ya existen en la
+  // búsqueda (por nombre). Devuelve cuántos agregó y cuántos omitió.
+  function addPendingCandidates(
+    jobId: string,
+    items: { name: string; cvText: string }[],
+  ): { added: number; skipped: number } {
+    const job = jobsRef.current.find((j) => j.id === jobId);
+    const seen = new Set((job?.candidates ?? []).map((c) => nameKey(c.name)).filter(Boolean));
+    const fresh: { name: string; cvText: string }[] = [];
+    let skipped = 0;
+    for (const it of items) {
+      const key = nameKey(it.name || "");
+      if (key && seen.has(key)) {
+        skipped++;
+        continue;
+      }
+      if (key) seen.add(key);
+      fresh.push(it);
+    }
+    const cands: Candidate[] = fresh.map((it) => ({
       id: genId(),
       source: "upload",
       name: it.name?.trim() || "Desconocido",
@@ -1488,9 +1515,12 @@ export default function Home() {
       status: "nuevo",
       scoreStatus: "pending",
     }));
-    setJobs((prev) =>
-      prev.map((j) => (j.id === jobId ? { ...j, candidates: [...j.candidates, ...cands] } : j)),
-    );
+    if (cands.length) {
+      setJobs((prev) =>
+        prev.map((j) => (j.id === jobId ? { ...j, candidates: [...j.candidates, ...cands] } : j)),
+      );
+    }
+    return { added: cands.length, skipped };
   }
 
   // Sube archivos. Los PDF se SEPARAN (si traen varios CVs) y quedan PENDIENTES:
@@ -1507,21 +1537,27 @@ export default function Home() {
           if (res.status === 401) onAuthFail();
           const data = await res.json().catch(() => ({}));
           if (res.ok && data.single === false && Array.isArray(data.cvs) && data.cvs.length > 0) {
-            addPendingCandidates(
+            const { added, skipped } = addPendingCandidates(
               jobId,
               (data.cvs as { name: string; text: string }[]).map((cv) => ({
                 name: cv.name,
                 cvText: cv.text,
               })),
             );
-            showToast(`Separé ${data.cvs.length} CVs del PDF. Tocá «Evaluar candidatos».`);
+            showToast(
+              `Separé ${data.cvs.length} CVs: ${added} nuevo${added !== 1 ? "s" : ""}` +
+                (skipped ? `, ${skipped} ya estaban (omitidos)` : "") +
+                ". Tocá «Evaluar candidatos».",
+            );
             continue;
           }
           if (res.ok && data.single === true && typeof data.text === "string" && data.text.trim()) {
-            addPendingCandidates(jobId, [
+            const { added } = addPendingCandidates(jobId, [
               { name: file.name.replace(/\.pdf$/i, ""), cvText: data.text },
             ]);
-            showToast("CV agregado. Tocá «Evaluar candidatos».");
+            showToast(
+              added ? "CV agregado. Tocá «Evaluar candidatos»." : "Ese CV ya estaba en la búsqueda.",
+            );
             continue;
           }
         } catch {
