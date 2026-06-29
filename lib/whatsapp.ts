@@ -55,6 +55,34 @@ export function sendDocumentByLink(to: string, link: string, filename: string, c
   return waPost({ to, type: "document", document: { link, filename, caption } });
 }
 
+/** Sube un archivo a WhatsApp y devuelve su media id (no necesita URL pública). */
+export async function uploadMedia(
+  buffer: Buffer,
+  filename: string,
+  mimeType: string,
+): Promise<string> {
+  const { phoneId, token } = creds();
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("type", mimeType);
+  form.append("file", new Blob([new Uint8Array(buffer)], { type: mimeType }), filename);
+  const res = await fetch(`${GRAPH}/${phoneId}/media`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.id) {
+    throw new Error(data?.error?.message || `No se pudo subir el archivo (${res.status}).`);
+  }
+  return data.id as string;
+}
+
+/** Documento por media id (archivo previamente subido a WhatsApp). */
+export function sendDocumentById(to: string, mediaId: string, filename: string, caption?: string) {
+  return waPost({ to, type: "document", document: { id: mediaId, filename, caption } });
+}
+
 /** Descarga un archivo que mandó el candidato (por media id). */
 export async function downloadMedia(
   mediaId: string,

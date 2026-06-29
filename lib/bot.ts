@@ -4,8 +4,23 @@
 // el Excel y, al recibirlo resuelto, el mensaje final. Las preguntas se editan en
 // la app (por área). El área arranca por la búsqueda pero el candidato la confirma.
 import { supabaseAdmin } from "./supabase";
-import { sendText, sendTemplate, sendDocumentByLink, downloadMedia } from "./whatsapp";
+import { sendText, sendTemplate, uploadMedia, sendDocumentById, downloadMedia } from "./whatsapp";
 import { scoreExcel } from "./excel-score";
+
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+// Baja el Excel de la prueba desde Supabase Storage (bucket privado, no público).
+async function fetchExcelBuffer(): Promise<{ buffer: Buffer; filename: string; mime: string } | null> {
+  const bucket = process.env.RECRUIT_EXCEL_BUCKET || "bot-assets";
+  const path = process.env.RECRUIT_EXCEL_PATH || "prueba-excel-3.xlsx";
+  try {
+    const { data, error } = await supabaseAdmin().storage.from(bucket).download(path);
+    if (error || !data) return null;
+    return { buffer: Buffer.from(await data.arrayBuffer()), filename: "Prueba Excel.xlsx", mime: XLSX_MIME };
+  } catch {
+    return null;
+  }
+}
 
 export interface BotQuestion {
   q: string;
@@ -144,12 +159,18 @@ export async function handleInbound(msg: InboundMsg): Promise<void> {
       await patch(s.id, { answers, current_index: next });
       await say({ ...s }, qs[next].q);
     } else {
-      const excel = process.env.RECRUIT_EXCEL_URL;
-      if (excel) {
+      const ex = await fetchExcelBuffer();
+      if (ex) {
         await patch(s.id, { answers, status: "awaiting_excel" });
         const cap = area?.excel_message || "Resolvé esta prueba y reenviá el archivo por este chat.";
-        await sendDocumentByLink(phone, excel, "Prueba Excel.xlsx", cap);
-        await logMsg(s.id, phone, "out", "[documento Excel]");
+        try {
+          const mediaId = await uploadMedia(ex.buffer, ex.filename, ex.mime);
+          await sendDocumentById(phone, mediaId, ex.filename, cap);
+          await logMsg(s.id, phone, "out", "[documento Excel]");
+        } catch (err) {
+          console.error("No se pudo enviar el Excel:", err);
+          await say({ ...s }, cap);
+        }
       } else {
         await patch(s.id, { answers, status: "completed", completed_at: nowIso() });
         await say({ ...s }, area?.final_message || "¡Gracias por tus respuestas! Te contactamos pronto.");
