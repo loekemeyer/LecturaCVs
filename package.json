@@ -16,6 +16,8 @@
     "mailparser": "^3.9.10",
     "next": "^16.2.9",
     "nodemailer": "^9.0.1",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.1.200",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "unpdf": "^1.6.2",

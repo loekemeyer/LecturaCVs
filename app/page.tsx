@@ -1425,53 +1425,90 @@ export default function Home() {
   }
 
   // ---------- subir archivo manual a una búsqueda ----------
-  function addFilesToJob(jobId: string, list: FileList | File[]) {
+  // Evalúa UN archivo (PDF/imagen) como un candidato.
+  function scoreUploadedFile(jobId: string, file: File | Blob, displayName: string) {
+    const id = genId();
+    const cand: Candidate = {
+      id,
+      source: "upload",
+      name: displayName,
+      expectedSalary: "",
+      date: new Date().toISOString(),
+      status: "nuevo",
+      scoreStatus: "scoring",
+    };
+    setJobs((prev) =>
+      prev.map((j) => (j.id === jobId ? { ...j, candidates: [...j.candidates, cand] } : j)),
+    );
+    (async () => {
+      try {
+        const job = jobsRef.current.find((j) => j.id === jobId);
+        if (!job) return;
+        const f =
+          file instanceof File
+            ? file
+            : new File([file], `${displayName}.pdf`, { type: "application/pdf" });
+        const { blob, filename } = await prepareUpload(f);
+        const fd = new FormData();
+        fd.append("file", blob, filename);
+        fd.append("criteria", JSON.stringify(criteriaPayload(job)));
+        fd.append("jobContext", job.jobContext || job.title);
+        fd.append("offeredSalary", offeredSalaryText(job));
+        fd.append("plantAddress", resolveAddress(job));
+        fd.append("companyValues", companyValuesRef.current || "");
+        const res = await fetch("/api/score", { method: "POST", body: fd, headers: authHeaders() });
+        if (res.status === 401) onAuthFail();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+        patchCandidate(jobId, id, {
+          evaluation: data,
+          scoreStatus: "done",
+          name: data.candidateName || displayName,
+          evaluatedAt: new Date().toISOString(),
+        });
+        setEvaluatedCount((n) => n + 1);
+      } catch (e) {
+        patchCandidate(jobId, id, {
+          scoreStatus: "error",
+          error: e instanceof Error ? e.message : "Error",
+        });
+      }
+    })();
+  }
+
+  function base64ToBlob(b64: string, type: string): Blob {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type });
+  }
+
+  // Sube archivos. Si un PDF contiene varios CVs (índice de ZonaJobs/exportado),
+  // lo separa automáticamente en un candidato por CV.
+  async function addFilesToJob(jobId: string, list: FileList | File[]) {
     const supported = Array.from(list).filter(isSupportedFile);
-    supported.forEach((file) => {
-      const id = genId();
-      const cand: Candidate = {
-        id,
-        source: "upload",
-        name: file.name,
-        expectedSalary: "",
-        date: new Date().toISOString(),
-        status: "nuevo",
-        scoreStatus: "scoring",
-      };
-      setJobs((prev) =>
-        prev.map((j) => (j.id === jobId ? { ...j, candidates: [...j.candidates, cand] } : j)),
-      );
-      (async () => {
+    for (const file of supported) {
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      if (isPdf) {
         try {
-          const job = jobsRef.current.find((j) => j.id === jobId);
-          if (!job) return;
-          const { blob, filename } = await prepareUpload(file);
           const fd = new FormData();
-          fd.append("file", blob, filename);
-          fd.append("criteria", JSON.stringify(criteriaPayload(job)));
-          fd.append("jobContext", job.jobContext || job.title);
-          fd.append("offeredSalary", offeredSalaryText(job));
-          fd.append("plantAddress", resolveAddress(job));
-          fd.append("companyValues", companyValuesRef.current || "");
-          const res = await fetch("/api/score", { method: "POST", body: fd, headers: authHeaders() });
+          fd.append("file", file);
+          const res = await fetch("/api/split-pdf", { method: "POST", body: fd, headers: authHeaders() });
           if (res.status === 401) onAuthFail();
           const data = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
-          patchCandidate(jobId, id, {
-            evaluation: data,
-            scoreStatus: "done",
-            name: data.candidateName || file.name,
-            evaluatedAt: new Date().toISOString(),
-          });
-          setEvaluatedCount((n) => n + 1);
-        } catch (e) {
-          patchCandidate(jobId, id, {
-            scoreStatus: "error",
-            error: e instanceof Error ? e.message : "Error",
-          });
+          if (res.ok && data.single === false && Array.isArray(data.cvs) && data.cvs.length > 0) {
+            showToast(`Separé ${data.cvs.length} CVs del PDF. Evaluando…`);
+            for (const cv of data.cvs as { name: string; base64: string }[]) {
+              scoreUploadedFile(jobId, base64ToBlob(cv.base64, "application/pdf"), cv.name);
+            }
+            continue;
+          }
+        } catch {
+          /* si falla la separación, lo subimos como un solo CV */
         }
-      })();
-    });
+      }
+      scoreUploadedFile(jobId, file, file.name);
+    }
   }
 
   function toggleCand(id: string) {
