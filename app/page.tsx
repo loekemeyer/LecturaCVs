@@ -1794,13 +1794,18 @@ export default function Home() {
   return (
     <main className="page">
       <header className="appbar">
-        <div className="brand">
+        <button
+          type="button"
+          className="brand"
+          onClick={() => setActiveTab("")}
+          title="Ir al inicio (lista de búsquedas)"
+        >
           <span className="logo">CV</span>
           <div className="brand-text">
             <span className="brand-name">LecturaCVs</span>
             <span className="brand-tag">Pre-selección de candidatos con IA</span>
           </div>
-        </div>
+        </button>
         <div className="appbar-right">
           <button
             type="button"
