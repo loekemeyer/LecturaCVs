@@ -5,6 +5,7 @@
 // la app (por área). El área arranca por la búsqueda pero el candidato la confirma.
 import { supabaseAdmin } from "./supabase";
 import { sendText, sendTemplate, sendDocumentByLink, downloadMedia } from "./whatsapp";
+import { scoreExcel } from "./excel-score";
 
 export interface BotQuestion {
   q: string;
@@ -162,13 +163,25 @@ export async function handleInbound(msg: InboundMsg): Promise<void> {
     const area = await areaById(s.area);
     try {
       const media = await downloadMedia(msg.documentId);
+      let excelScore: number | null = null;
+      let detail: Record<string, unknown> = {
+        mediaId: msg.documentId,
+        filename: media.filename,
+        bytes: media.buffer.length,
+      };
+      // Corrección automática del Excel (no debe frenar el flujo si falla).
+      try {
+        const r = await scoreExcel(media.buffer);
+        excelScore = r.total;
+        detail = { ...detail, total: r.total, max: r.max, dimensions: r.dimensions, summary: r.summary, manualReview: r.manualReview };
+      } catch (err) {
+        console.error("Error al puntuar el Excel:", err);
+        detail = { ...detail, error: "no se pudo puntuar automáticamente" };
+      }
       await patch(s.id, {
         excel_path: `${s.id}/${media.filename}`,
-        excel_detail: {
-          mediaId: msg.documentId,
-          filename: media.filename,
-          bytes: media.buffer.length,
-        },
+        excel_score: excelScore,
+        excel_detail: detail,
         status: "completed",
         completed_at: nowIso(),
       });
