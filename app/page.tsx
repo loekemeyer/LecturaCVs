@@ -2458,19 +2458,41 @@ export default function Home() {
                       c.scoreStatus !== "done" &&
                       c.scoreStatus !== "scoring",
                   ).length;
-                  const noNew = evalAll && pendientes === 0;
+                  const evaluados = activeJob.candidates.filter(
+                    (c) => c.scoreStatus === "done",
+                  ).length;
+                  const reevalMode = pendientes === 0 && evaluados > 0;
+                  const nada = pendientes === 0 && evaluados === 0;
                   return (
                     <button
                       className="btn btn-primary"
-                      onClick={() => startEvaluation(activeJob.id)}
-                      disabled={noNew}
-                      title="Evalúa solo los candidatos nuevos (no re-evalúa ni cobra los ya evaluados)"
+                      onClick={() => {
+                        if (reevalMode) {
+                          if (
+                            window.confirm(
+                              `Vas a RE-EVALUAR a los ${evaluados} candidatos ya evaluados con los criterios actuales. Esto tiene costo. ¿Continuar?`,
+                            )
+                          ) {
+                            evaluateJob(activeJob.id, { reevaluateAll: true });
+                          }
+                        } else {
+                          startEvaluation(activeJob.id);
+                        }
+                      }}
+                      disabled={nada}
+                      title={
+                        reevalMode
+                          ? "Re-evalúa a TODOS con los criterios actuales (tiene costo)"
+                          : "Evalúa solo los candidatos nuevos (no re-evalúa ni cobra los ya evaluados)"
+                      }
                     >
-                      {noNew
-                        ? "Sin candidatos nuevos"
-                        : evalAll
-                          ? `Evaluar ${pendientes} nuevo${pendientes !== 1 ? "s" : ""}`
-                          : `Evaluar ${evalCount || "…"} candidatos`}
+                      {nada
+                        ? "Sin candidatos"
+                        : reevalMode
+                          ? `🔄 Re-evaluar todos (${evaluados})`
+                          : evalAll
+                            ? `Evaluar ${pendientes} nuevo${pendientes !== 1 ? "s" : ""}`
+                            : `Evaluar ${evalCount || "…"} candidatos`}
                     </button>
                   );
                 })()
