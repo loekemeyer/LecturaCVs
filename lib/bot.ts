@@ -308,6 +308,7 @@ export async function startSession(opts: {
   await supabaseAdmin().from("bot_sessions").insert({
     id,
     candidate_id: opts.candidateId,
+    candidate_name: candName || null,
     search_id: opts.searchId || null,
     phone: opts.phone,
     status: "awaiting_travel",

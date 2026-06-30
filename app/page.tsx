@@ -4624,6 +4624,7 @@ interface AreaCfg {
 interface BotSess {
   id: string;
   candidate_id: string;
+  candidate_name?: string | null;
   search_id: string | null;
   area: string | null;
   status: string;
@@ -4793,7 +4794,7 @@ function WaBot({
                             style={{ flex: 1, cursor: "pointer" }}
                             onClick={() => setOpenSess((o) => (o === s.id ? null : s.id))}
                           >
-                            {candName.get(s.candidate_id) || s.candidate_id}
+                            {s.candidate_name || candName.get(s.candidate_id) || "Candidato"}
                           </span>
                           <span className={`wabot-sess-status st-${s.status}`}>{s.status}</span>
                           <span className="wabot-sess-score">
