@@ -766,14 +766,18 @@ export default function Home() {
   // cualquier toque sin querer tiene vuelta atrás.
   function setCalifWithUndo(jobId: string, candId: string, prev: Calificacion, next: Calificacion) {
     const extra: Partial<Candidate> = { calificacion: next };
-    // Al preseleccionar, el candidato entra al tablero en la primera etapa.
-    if (next === "preseleccionado") {
+    // Sincronización lista ↔ tablero: el tablero muestra a los Preseleccionados y
+    // Favoritos. Al marcar una de esas condiciones, el candidato entra (1ª etapa si
+    // no tiene). Al quitarla (Sin calif / Descartado), sale del tablero.
+    if (next === "preseleccionado" || next === "favorito") {
       const job = jobsRef.current.find((j) => j.id === jobId);
       const cand = job?.candidates.find((c) => c.id === candId);
       if (job && cand && !cand.stageId) {
         extra.stageId = stagesOf(job)[0].id;
         if (!job.stages?.length) patchJob(jobId, { stages: DEFAULT_STAGES });
       }
+    } else {
+      extra.stageId = undefined;
     }
     patchCandidate(jobId, candId, extra);
     setGraceUndo((g) => ({ ...g, [candId]: { prev, until: Date.now() + GRACE_MS } }));
@@ -825,7 +829,8 @@ export default function Home() {
     patchCandidate(jobId, candId, { stageId });
   }
   function removeFromBoard(jobId: string, candId: string) {
-    patchCandidate(jobId, candId, { stageId: undefined });
+    // Sacar del tablero = quitarle la condición (vuelve a "Sin calificar" en la Lista).
+    patchCandidate(jobId, candId, { stageId: undefined, calificacion: "sincalificar" });
   }
   function addStage(jobId: string) {
     const name = window.prompt("Nombre de la nueva etapa:");
@@ -2111,8 +2116,11 @@ export default function Home() {
 
       {/* vista de una búsqueda */}
       {activeJob && (
-        <div className="job-layout">
-          <section className="card job-config">
+        <div className="job-layout" style={boardView ? { display: "block" } : undefined}>
+          <section
+            className="card job-config"
+            style={boardView ? { display: "none" } : undefined}
+          >
             <div className="job-head">
               <input
                 className="job-title"
@@ -3970,10 +3978,25 @@ function Board({
   onSendMail: (cand: Candidate) => void;
   onStartWa: (cand: Candidate) => void;
 }) {
-  const onBoard = job.candidates.filter((c) => c.stageId);
+  const [openCards, setOpenCards] = useState<Set<string>>(new Set());
+  const toggleCard = (id: string) =>
+    setOpenCards((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  // El tablero muestra a los Preseleccionados y Favoritos (sincronizado con la Lista).
+  const onBoard = job.candidates.filter(
+    (c) => califOf(c) === "preseleccionado" || califOf(c) === "favorito",
+  );
+  const firstStage = stages[0]?.id;
+  const validIds = new Set(stages.map((s) => s.id));
+  const effStage = (c: Candidate) =>
+    c.stageId && validIds.has(c.stageId) ? c.stageId : firstStage;
   const byStage = (sid: string) =>
     onBoard
-      .filter((c) => c.stageId === sid)
+      .filter((c) => effStage(c) === sid)
       .sort((a, b) => (b.evaluation?.overallScore ?? -1) - (a.evaluation?.overallScore ?? -1));
   return (
     <div className="board">
@@ -4035,84 +4058,94 @@ function Board({
                 </div>
               </div>
               <div className="board-col-body">
-                {list.map((c) => (
-                  <div key={c.id} className="board-card">
-                    <div
-                      className="board-card-top"
-                      draggable
-                      onDragStart={(e) => e.dataTransfer.setData("text/cand", c.id)}
-                      title="Arrastrá desde acá para mover a otra etapa"
-                    >
-                      <span className="board-grip" aria-hidden="true">
-                        ⠿
-                      </span>
-                      {c.evaluation && (
-                        <span className={`score-chip ${scoreClass(c.evaluation.overallScore)}`}>
-                          {toTen(c.evaluation.overallScore)}
+                {list.map((c) => {
+                  const open = openCards.has(c.id);
+                  return (
+                    <div key={c.id} className="board-card">
+                      <div
+                        className="board-card-top"
+                        draggable
+                        onDragStart={(e) => e.dataTransfer.setData("text/cand", c.id)}
+                        onClick={() => toggleCard(c.id)}
+                        title="Arrastrá para mover de etapa · tocá para ver acciones"
+                        style={{ cursor: "pointer" }}
+                      >
+                        <span className="board-grip" aria-hidden="true">
+                          ⠿
                         </span>
+                        {c.evaluation && (
+                          <span className={`score-chip ${scoreClass(c.evaluation.overallScore)}`}>
+                            {toTen(c.evaluation.overallScore)}
+                          </span>
+                        )}
+                        <span className="board-card-name">{c.name}</span>
+                        {c.notes ? <span title="Tiene nota">📝</span> : null}
+                      </div>
+                      <div className="board-card-meta">
+                        {c.evaluation?.age != null ? `${c.evaluation.age} años · ` : ""}
+                        {c.evaluation?.distanceKm != null ? `${c.evaluation.distanceKm} km · ` : ""}
+                        {c.expectedSalary ? `pretende ${c.expectedSalary}` : ""}
+                      </div>
+                      {open && (
+                        <>
+                          <div className="board-card-actions">
+                            <button
+                              className="icon-btn"
+                              title="Ver CV completo (con opción de imprimir)"
+                              onClick={() =>
+                                onViewCv({ name: c.name, emailUid: c.emailUid, cvText: c.cvText })
+                              }
+                            >
+                              📄
+                            </button>
+                            <button
+                              className="icon-btn"
+                              title="Enviar un mail al candidato"
+                              onClick={() => onSendMail(c)}
+                            >
+                              ✉️
+                            </button>
+                            <button
+                              className="icon-btn"
+                              title="Iniciar evaluación por WhatsApp"
+                              onClick={() => onStartWa(c)}
+                            >
+                              🤖
+                            </button>
+                            <button
+                              className="icon-btn"
+                              title="Quitar del tablero (vuelve a Sin calificar)"
+                              onClick={() => onRemove(c.id)}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          <label className="board-move-row">
+                            Mover a:
+                            <select
+                              value={effStage(c)}
+                              onChange={(e) => onMove(c.id, e.target.value)}
+                              title="Mover a otra etapa"
+                            >
+                              {stages.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <textarea
+                            className="board-note"
+                            rows={2}
+                            placeholder="📝 Nota… (se ve también en la Lista)"
+                            value={c.notes ?? ""}
+                            onChange={(e) => onNotes(c.id, e.target.value)}
+                          />
+                        </>
                       )}
-                      <span className="board-card-name">{c.name}</span>
                     </div>
-                    <div className="board-card-meta">
-                      {c.evaluation?.age != null ? `${c.evaluation.age} años · ` : ""}
-                      {c.evaluation?.distanceKm != null ? `${c.evaluation.distanceKm} km · ` : ""}
-                      {c.expectedSalary ? `pretende ${c.expectedSalary}` : ""}
-                    </div>
-                    <div className="board-card-actions">
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        title="Ver CV completo (con opción de imprimir)"
-                        onClick={() =>
-                          onViewCv({ name: c.name, emailUid: c.emailUid, cvText: c.cvText })
-                        }
-                      >
-                        📄 Ver CV
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        title="Enviar un mail al candidato"
-                        onClick={() => onSendMail(c)}
-                      >
-                        ✉️ Enviar mail
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        title="Iniciar evaluación por WhatsApp"
-                        onClick={() => onStartWa(c)}
-                      >
-                        🤖
-                      </button>
-                      <button
-                        className="icon-btn"
-                        title="Sacar del tablero"
-                        onClick={() => onRemove(c.id)}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    <label className="board-move-row">
-                      Mover a:
-                      <select
-                        value={c.stageId}
-                        onChange={(e) => onMove(c.id, e.target.value)}
-                        title="Mover a otra etapa"
-                      >
-                        {stages.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <textarea
-                      className="board-note"
-                      rows={2}
-                      placeholder="📝 Nota… (se ve también en la Lista)"
-                      value={c.notes ?? ""}
-                      onChange={(e) => onNotes(c.id, e.target.value)}
-                    />
-                  </div>
-                ))}
+                  );
+                })}
                 {list.length === 0 && <div className="board-empty">Soltá acá una tarjeta</div>}
               </div>
             </div>
