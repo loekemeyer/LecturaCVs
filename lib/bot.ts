@@ -49,11 +49,20 @@ interface SessionRow {
 
 const nowIso = () => new Date().toISOString();
 
+// Variantes del número argentino con y sin el "9" (54 9 11… ↔ 54 11…), porque
+// WhatsApp a veces entrega el "from" sin el 9 aunque la sesión se haya creado con él.
+function phoneVariants(phone: string): string[] {
+  const set = new Set<string>([phone]);
+  if (phone.startsWith("549")) set.add("54" + phone.slice(3));
+  else if (phone.startsWith("54")) set.add("549" + phone.slice(2));
+  return [...set];
+}
+
 async function activeSession(phone: string): Promise<SessionRow | null> {
   const { data } = await supabaseAdmin()
     .from("bot_sessions")
     .select("*")
-    .eq("phone", phone)
+    .in("phone", phoneVariants(phone))
     .in("status", ["pending", "in_progress", "awaiting_excel"])
     .order("updated_at", { ascending: false })
     .limit(1)
