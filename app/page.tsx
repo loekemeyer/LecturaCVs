@@ -235,6 +235,9 @@ const nameKey = (s: string) =>
     .filter(Boolean)
     .sort()
     .join(" ");
+
+// Estimaciones de costo del bot (US$ aprox.). IA = Anthropic; WhatsApp = Meta.
+const BOT_COST = { answers: 0.005, excel: 0.01, waConversation: 0.034 };
 function hace(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
@@ -373,6 +376,10 @@ export default function Home() {
   const [boardView, setBoardView] = useState(false);
   // Pantalla con el detalle del gasto estimado (por día y por aviso).
   const [costDetailOpen, setCostDetailOpen] = useState(false);
+  // Pestaña del detalle de gasto: CVs (LecturaCVs) o Bot.
+  const [costTab, setCostTab] = useState<"cvs" | "bot">("cvs");
+  // Sesiones del bot (para el gasto del bot). Se cargan al abrir el detalle.
+  const [botSessions, setBotSessions] = useState<{ score: number | null; excel_score: number | null }[]>([]);
   // Compositor de mail abierto para un candidato (desde el tablero).
   const [mailCand, setMailCand] = useState<{ jobId: string; cand: Candidate } | null>(null);
   // Estado de conexión con Google Calendar.
@@ -1777,6 +1784,31 @@ export default function Home() {
     return { total, byJob, byDayCurrent, byMonth, currentMonth };
   }, [jobs]);
 
+  // Al abrir el detalle de gasto, traemos las sesiones del bot (para su gasto).
+  useEffect(() => {
+    if (!costDetailOpen) return;
+    (async () => {
+      try {
+        const r = await fetch("/api/whatsapp/sessions", { headers: authHeaders() });
+        const d = await r.json().catch(() => ({}));
+        setBotSessions(Array.isArray(d.sessions) ? d.sessions : []);
+      } catch {
+        /* sin datos del bot */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [costDetailOpen]);
+
+  // Gasto estimado del bot: IA (respuestas + Excel) y WhatsApp/Meta (por conversación).
+  const botStats = useMemo(() => {
+    const conversations = botSessions.length;
+    const answersScored = botSessions.filter((s) => s.score != null).length;
+    const excelScored = botSessions.filter((s) => s.excel_score != null).length;
+    const iaCost = answersScored * BOT_COST.answers + excelScored * BOT_COST.excel;
+    const waCost = conversations * BOT_COST.waConversation;
+    return { conversations, answersScored, excelScored, iaCost, waCost, total: iaCost + waCost };
+  }, [botSessions]);
+
   const activeJob = jobs.find((j) => j.id === activeTab) || null;
   const totalCandidates = useMemo(
     () => jobs.reduce((n, j) => n + j.candidates.length, 0),
@@ -2867,6 +2899,62 @@ export default function Home() {
               </button>
             </div>
             <div className="modal-body cost-detail">
+              <div className="results-toolbar" style={{ gap: 8, marginBottom: 10 }}>
+                <button
+                  className={`btn btn-sm ${costTab === "cvs" ? "btn-primary" : "btn-ghost"}`}
+                  onClick={() => setCostTab("cvs")}
+                >
+                  LecturaCVs
+                </button>
+                <button
+                  className={`btn btn-sm ${costTab === "bot" ? "btn-primary" : "btn-ghost"}`}
+                  onClick={() => setCostTab("bot")}
+                >
+                  Bot
+                </button>
+              </div>
+
+              {costTab === "bot" ? (
+                <div>
+                  <div className="cost-total">
+                    Gasto del bot{" "}
+                    <span className="cost-total-usd">· ~US${botStats.total.toFixed(2)}</span>
+                  </div>
+                  <p className="cost-note">
+                    Estimado. La <b>IA</b> se paga a Anthropic; <b>WhatsApp</b> a Meta.
+                  </p>
+                  <h4>IA del bot</h4>
+                  <div className="cost-table">
+                    <div className="cost-row">
+                      <span className="cost-row-label">Respuestas puntuadas</span>
+                      <span className="cost-row-count">{botStats.answersScored}</span>
+                      <span className="cost-row-usd">
+                        ~US${(botStats.answersScored * BOT_COST.answers).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="cost-row">
+                      <span className="cost-row-label">Excel corregidos</span>
+                      <span className="cost-row-count">{botStats.excelScored}</span>
+                      <span className="cost-row-usd">
+                        ~US${(botStats.excelScored * BOT_COST.excel).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                  <h4>WhatsApp / Meta</h4>
+                  <div className="cost-table">
+                    <div className="cost-row">
+                      <span className="cost-row-label">Conversaciones iniciadas</span>
+                      <span className="cost-row-count">{botStats.conversations}</span>
+                      <span className="cost-row-usd">~US${botStats.waCost.toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <p className="cost-note">
+                    El costo real de WhatsApp está en la facturación de <b>Meta</b> (Business Manager).
+                    Acá es un estimado (~US${BOT_COST.waConversation.toFixed(3)}/conversación).
+                  </p>
+                </div>
+              ) : (
+                <>
               <div className="cost-total">
                 <b>{costStats.total}</b> CV{costStats.total !== 1 ? "s" : ""} evaluado
                 {costStats.total !== 1 ? "s" : ""}
@@ -2931,6 +3019,8 @@ export default function Home() {
                       </div>
                     ))}
                   </div>
+                </>
+              )}
                 </>
               )}
             </div>
