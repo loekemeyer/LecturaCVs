@@ -143,6 +143,24 @@ function bad(error: string, status = 400) {
   return Response.json({ error }, { status });
 }
 
+// Supabase limita cada consulta a 1000 filas. Traemos TODOS los candidatos por
+// páginas; si no, con +1000 candidatos faltarían y no se verían en la app.
+async function fetchAllCandidates(sb: ReturnType<typeof supabaseAdmin>): Promise<Row[]> {
+  const all: Row[] = [];
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await sb
+      .from("candidates")
+      .select("*")
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as Row[];
+    all.push(...rows);
+    if (rows.length < pageSize) break;
+  }
+  return all;
+}
+
 export async function POST(req: Request) {
   if (!isAuthorized(req)) return unauthorized();
   if (!supabaseConfigured()) {
@@ -161,15 +179,14 @@ export async function POST(req: Request) {
 
   try {
     if (action === "load") {
-      const [searchesRes, candsRes, settingsRes] = await Promise.all([
+      const [searchesRes, candRows, settingsRes] = await Promise.all([
         sb.from("searches").select("*").order("sort_index", { ascending: true }),
-        sb.from("candidates").select("*"),
+        fetchAllCandidates(sb),
         sb.from("app_settings").select("*").eq("id", "default").maybeSingle(),
       ]);
       if (searchesRes.error) throw searchesRes.error;
-      if (candsRes.error) throw candsRes.error;
       const byJob = new Map<string, CandLike[]>();
-      for (const r of (candsRes.data ?? []) as Row[]) {
+      for (const r of candRows) {
         const sid = String(r.search_id);
         const list = byJob.get(sid) ?? [];
         list.push(rowToCand(r));
