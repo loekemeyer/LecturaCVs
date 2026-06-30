@@ -434,17 +434,9 @@ export default function Home() {
     if (!authed || loaded) return;
     (async () => {
       try {
-        const res = await dataApi({ action: "load" });
-        if (res.ok) {
-          const data = await res.json();
-          const jobsArr: Job[] = Array.isArray(data.jobs)
-            ? (data.jobs as Job[]).filter(
-                (j) => !(j.title === "Nueva búsqueda" && (j.candidates?.length ?? 0) === 0),
-              )
-            : [];
-          const sedesArr: Sede[] = Array.isArray(data.sedes) ? data.sedes : [];
-          const cv: string = typeof data.companyValues === "string" ? data.companyValues : "";
-          const bk: string = typeof data.bookingUrl === "string" ? data.bookingUrl : "";
+        const data = await fetchAllJobs();
+        if (data) {
+          const { jobs: jobsArr, sedes: sedesArr, companyValues: cv, bookingUrl: bk } = data;
           setJobs(jobsArr);
           setActiveTab("");
           setSedes(sedesArr);
@@ -555,6 +547,37 @@ export default function Home() {
     return res;
   }
 
+  // Carga TODO desde la nube. El server pagina los candidatos (para no pasar el
+  // límite de tamaño de Vercel); acá pedimos página por página y las juntamos.
+  async function fetchAllJobs(): Promise<
+    { jobs: Job[]; sedes: Sede[]; companyValues: string; bookingUrl: string } | null
+  > {
+    const res = await dataApi({ action: "load", candPage: 0 });
+    if (!res.ok) return null;
+    const data = await res.json();
+    let jobs: Job[] = Array.isArray(data.jobs) ? (data.jobs as Job[]) : [];
+    const sedes: Sede[] = Array.isArray(data.sedes) ? data.sedes : [];
+    const companyValues = typeof data.companyValues === "string" ? data.companyValues : "";
+    const bookingUrl = typeof data.bookingUrl === "string" ? data.bookingUrl : "";
+    let more = !!data.candMore;
+    let page = 1;
+    while (more && page < 100) {
+      const r = await dataApi({ action: "load", candPage: page });
+      if (!r.ok) break;
+      const d = await r.json();
+      const moreJobs: Job[] = Array.isArray(d.jobs) ? (d.jobs as Job[]) : [];
+      const byId = new Map(moreJobs.map((j) => [j.id, j.candidates ?? []]));
+      jobs = jobs.map((j) => ({
+        ...j,
+        candidates: [...j.candidates, ...(byId.get(j.id) ?? [])],
+      }));
+      more = !!d.candMore;
+      page++;
+    }
+    jobs = jobs.filter((j) => !(j.title === "Nueva búsqueda" && (j.candidates?.length ?? 0) === 0));
+    return { jobs, sedes, companyValues, bookingUrl };
+  }
+
   // "Foto" del estado para comparar contra lo último subido (clave -> JSON).
   function buildSnapshot(jobsArr: Job[], sedesArr: Sede[], cv: string, bk: string) {
     const searches = new Map<string, string>();
@@ -634,13 +657,9 @@ export default function Home() {
   // Trae todo desde la nube y refresca la "foto" (para no re-subir lo que llegó).
   async function refetchFromCloud() {
     try {
-      const res = await dataApi({ action: "load" });
-      if (!res.ok) return;
-      const data = await res.json();
-      const jobsArr: Job[] = Array.isArray(data.jobs) ? data.jobs : [];
-      const sedesArr: Sede[] = Array.isArray(data.sedes) ? data.sedes : [];
-      const cv: string = typeof data.companyValues === "string" ? data.companyValues : "";
-      const bk: string = typeof data.bookingUrl === "string" ? data.bookingUrl : "";
+      const data = await fetchAllJobs();
+      if (!data) return;
+      const { jobs: jobsArr, sedes: sedesArr, companyValues: cv, bookingUrl: bk } = data;
       syncedRef.current = buildSnapshot(jobsArr, sedesArr, cv, bk);
       setJobs(jobsArr);
       setSedes(sedesArr);
@@ -2431,7 +2450,7 @@ export default function Home() {
                   </button>
                 </>
               ) : (
-                {(() => {
+                (() => {
                   const pendientes = activeJob.candidates.filter(
                     (c) =>
                       c.cvText &&
@@ -2454,7 +2473,7 @@ export default function Home() {
                           : `Evaluar ${evalCount || "…"} candidatos`}
                     </button>
                   );
-                })()}
+                })()
               )}
               <button className="btn btn-ghost" onClick={() => fileRef.current?.click()}>
                 + Agregar CV (archivo)

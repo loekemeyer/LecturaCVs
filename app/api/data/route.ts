@@ -143,22 +143,22 @@ function bad(error: string, status = 400) {
   return Response.json({ error }, { status });
 }
 
-// Supabase limita cada consulta a 1000 filas. Traemos TODOS los candidatos por
-// páginas; si no, con +1000 candidatos faltarían y no se verían en la app.
-async function fetchAllCandidates(sb: ReturnType<typeof supabaseAdmin>): Promise<Row[]> {
-  const all: Row[] = [];
-  const pageSize = 1000;
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await sb
-      .from("candidates")
-      .select("*")
-      .range(from, from + pageSize - 1);
-    if (error) throw error;
-    const rows = (data ?? []) as Row[];
-    all.push(...rows);
-    if (rows.length < pageSize) break;
-  }
-  return all;
+// Traemos los candidatos por páginas: una sola respuesta con todos (cv_text incluido)
+// supera el límite de tamaño de Vercel (~4.5 MB) con muchos candidatos. El cliente
+// pide página por página y las junta.
+async function fetchCandidatesPage(
+  sb: ReturnType<typeof supabaseAdmin>,
+  page: number,
+  size: number,
+): Promise<Row[]> {
+  const from = page * size;
+  const { data, error } = await sb
+    .from("candidates")
+    .select("*")
+    .order("id", { ascending: true })
+    .range(from, from + size - 1);
+  if (error) throw error;
+  return (data ?? []) as Row[];
 }
 
 export async function POST(req: Request) {
@@ -179,9 +179,11 @@ export async function POST(req: Request) {
 
   try {
     if (action === "load") {
+      const CAND_PAGE_SIZE = 600;
+      const candPage = Math.max(0, Number(body.candPage ?? 0) || 0);
       const [searchesRes, candRows, settingsRes] = await Promise.all([
         sb.from("searches").select("*").order("sort_index", { ascending: true }),
-        fetchAllCandidates(sb),
+        fetchCandidatesPage(sb, candPage, CAND_PAGE_SIZE),
         sb.from("app_settings").select("*").eq("id", "default").maybeSingle(),
       ]);
       if (searchesRes.error) throw searchesRes.error;
@@ -201,6 +203,8 @@ export async function POST(req: Request) {
         sedes: settings?.sedes ?? [],
         companyValues: (settings?.company_values as string) ?? "",
         bookingUrl: (settings?.booking_url as string) ?? "",
+        candMore: candRows.length === CAND_PAGE_SIZE,
+        candPage,
       });
     }
 
