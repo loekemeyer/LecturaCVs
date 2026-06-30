@@ -225,6 +225,17 @@ export async function handleInbound(msg: InboundMsg): Promise<void> {
     const area = await areaById(s.area);
     try {
       const media = await downloadMedia(msg.documentId);
+      // Guardamos el Excel recibido (para poder verlo/verificarlo a mano después).
+      const bucket = process.env.RECRUIT_EXCEL_BUCKET || "bot-assets";
+      const savedPath = `recibidos/${s.id}/${media.filename || "prueba.xlsx"}`;
+      try {
+        await supabaseAdmin().storage.from(bucket).upload(savedPath, media.buffer, {
+          contentType: XLSX_MIME,
+          upsert: true,
+        });
+      } catch (e) {
+        console.error("No se pudo guardar el Excel recibido:", e);
+      }
       let excelScore: number | null = null;
       let detail: Record<string, unknown> = {
         mediaId: msg.documentId,
@@ -241,7 +252,7 @@ export async function handleInbound(msg: InboundMsg): Promise<void> {
         detail = { ...detail, error: "no se pudo puntuar automáticamente" };
       }
       await patch(s.id, {
-        excel_path: `${s.id}/${media.filename}`,
+        excel_path: savedPath,
         excel_score: excelScore,
         excel_detail: detail,
         status: "completed",

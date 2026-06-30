@@ -4672,6 +4672,20 @@ function WaBot({
     notify("Evaluación borrada ✓");
   }
 
+  // Abre el Excel que envió el candidato (enlace firmado temporal).
+  async function downloadExcel(id: string) {
+    try {
+      const r = await fetch(`/api/whatsapp/excel?id=${encodeURIComponent(id)}`, {
+        headers: authHeaders(),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (d.url) window.open(d.url, "_blank");
+      else notify(d.error || "No se pudo abrir el Excel.");
+    } catch {
+      notify("No se pudo abrir el Excel.");
+    }
+  }
+
   function notify(t: string) {
     setFlash(t);
     window.setTimeout(() => setFlash(""), 2500);
@@ -4778,6 +4792,15 @@ function WaBot({
                                 <div className="wabot-qa-a">{qa.a}</div>
                               </div>
                             ))}
+                            {(s.excel_detail || s.excel_score != null) && (
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                style={{ marginTop: 8 }}
+                                onClick={() => downloadExcel(s.id)}
+                              >
+                                ⬇ Descargar Excel del candidato
+                              </button>
+                            )}
                             {s.excel_detail && (
                               <div className="wabot-excel">
                                 <h4>
