@@ -3986,10 +3986,10 @@ function Board({
       else n.add(id);
       return n;
     });
-  // El tablero muestra a los Preseleccionados y Favoritos (sincronizado con la Lista).
-  const onBoard = job.candidates.filter(
-    (c) => califOf(c) === "preseleccionado" || califOf(c) === "favorito",
-  );
+  // El tablero muestra a quienes están en una etapa. La sincronización con la Lista
+  // se mantiene por las acciones (preseleccionar agrega; quitar la condición o la ✕
+  // sacan, limpiando la etapa). Así no se esconde a nadie que ya estuviera en curso.
+  const onBoard = job.candidates.filter((c) => c.stageId);
   const firstStage = stages[0]?.id;
   const validIds = new Set(stages.map((s) => s.id));
   const effStage = (c: Candidate) =>
