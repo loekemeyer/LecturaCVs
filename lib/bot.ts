@@ -122,8 +122,9 @@ const AUTO_REPLY =
   process.env.RECRUIT_AUTO_REPLY ||
   `Hola!
 Soy el Asistente Virtual de Loekemeyer Srl
-Si deseas postularte, o saber el estado de tu postulación
-Escribe al siguiente mail: rrhhloeke@gmail.com`;
+Si deseas saber el estado de tu postulación
+Escribe al siguiente mail:
+empleosloeke@gmail.com`;
 
 // Cierra el tramo de preguntas: puntúa las respuestas con los criterios del puesto,
 // y manda el Excel (o el mensaje final si no hay Excel disponible).
