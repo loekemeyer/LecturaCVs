@@ -4501,6 +4501,7 @@ interface AreaCfg {
 interface BotSess {
   id: string;
   candidate_id: string;
+  search_id: string | null;
   area: string | null;
   status: string;
   score: number | null;
@@ -4526,6 +4527,7 @@ function WaBot({
   const [sessions, setSessions] = useState<BotSess[]>([]);
   const [loading, setLoading] = useState(true);
   const [openSess, setOpenSess] = useState<string | null>(null);
+  const [openAviso, setOpenAviso] = useState<string | null>(null);
   const [flash, setFlash] = useState("");
 
   useEffect(() => {
@@ -4552,8 +4554,33 @@ function WaBot({
     for (const j of jobs) for (const c of j.candidates) m.set(c.id, c.name);
     return m;
   }, [jobs]);
-  const areaLabel = (id: string | null) =>
-    BOT_AREAS.find((a) => a.id === id)?.label || id || "—";
+  // Evaluaciones agrupadas por aviso (búsqueda). Lista TODOS los avisos; los que
+  // tienen evaluaciones primero. Las sesiones sin aviso conocido van a "Sin aviso".
+  const avisoGroups = useMemo(() => {
+    const byId = new Map<string, BotSess[]>();
+    for (const s of sessions) {
+      const k = s.search_id || "_none";
+      const list = byId.get(k) || [];
+      list.push(s);
+      byId.set(k, list);
+    }
+    const known = new Set(jobs.map((j) => j.id));
+    const groups = jobs.map((j) => ({ id: j.id, title: j.title, sessions: byId.get(j.id) || [] }));
+    const orphans: BotSess[] = [];
+    for (const [k, list] of byId) if (k === "_none" || !known.has(k)) orphans.push(...list);
+    if (orphans.length) groups.push({ id: "_none", title: "Sin aviso", sessions: orphans });
+    return groups.sort((a, b) => b.sessions.length - a.sessions.length);
+  }, [sessions, jobs]);
+
+  async function deleteSession(id: string) {
+    if (!window.confirm("¿Borrar esta evaluación? No se puede deshacer.")) return;
+    await fetch(`/api/whatsapp/sessions?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    setSessions((prev) => prev.filter((x) => x.id !== id));
+    notify("Evaluación borrada ✓");
+  }
 
   function notify(t: string) {
     setFlash(t);
@@ -4591,26 +4618,128 @@ function WaBot({
     <>
       {flash && <div className="toast">{flash}</div>}
 
+      {/* EVALUACIONES arriba, agrupadas por aviso */}
       <section className="card">
-        <h2 style={{ margin: 0 }}>🤖 Bot de WhatsApp</h2>
+        <div className="results-toolbar">
+          <h2 style={{ margin: 0 }}>📊 Evaluaciones por aviso</h2>
+          <span className="count">{sessions.length}</span>
+        </div>
         <p className="field-hint" style={{ marginTop: 6 }}>
-          Acá editás el <strong>primer mensaje</strong> (selector de área) y las <strong>preguntas</strong> de
-          cada área. El bot manda solo la pregunta, una por una.
+          Entrá a un aviso para ver sus evaluaciones. <strong>Resp</strong> = puntaje de las
+          respuestas; <strong>Excel</strong> = puntaje de la prueba. Tocá el nombre para ver el detalle.
         </p>
-        <h4>Mensaje inicial (selector de área)</h4>
-        <textarea
-          className="posting-input"
-          rows={6}
-          value={initial}
-          onChange={(e) => setInitial(e.target.value)}
-        />
-        <button className="btn btn-primary" style={{ marginTop: 8 }} onClick={saveInitial}>
-          Guardar mensaje inicial
-        </button>
-        <p className="field-hint">
-          Ojo: este texto debe coincidir con la <strong>plantilla aprobada</strong> por Meta (es el
-          primer mensaje).
+        {avisoGroups.length === 0 ? (
+          <p className="empty">Todavía no hay avisos.</p>
+        ) : (
+          avisoGroups.map((g) => (
+            <div key={g.id} style={{ borderTop: "1px solid #eee" }}>
+              <div
+                onClick={() => setOpenAviso((o) => (o === g.id ? null : g.id))}
+                style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 2px", cursor: "pointer" }}
+              >
+                <strong style={{ flex: 1 }}>{g.title}</strong>
+                <span className="count">{g.sessions.length}</span>
+                <span className="chevron">▾</span>
+              </div>
+              {openAviso === g.id &&
+                (g.sessions.length === 0 ? (
+                  <p className="empty" style={{ paddingBottom: 10 }}>
+                    Sin evaluaciones todavía.
+                  </p>
+                ) : (
+                  <div className="wabot-sessions">
+                    {g.sessions.map((s) => (
+                      <div className="wabot-sess" key={s.id}>
+                        <div className="wabot-sess-head">
+                          <span
+                            className="wabot-sess-name"
+                            style={{ flex: 1, cursor: "pointer" }}
+                            onClick={() => setOpenSess((o) => (o === s.id ? null : s.id))}
+                          >
+                            {candName.get(s.candidate_id) || s.candidate_id}
+                          </span>
+                          <span className={`wabot-sess-status st-${s.status}`}>{s.status}</span>
+                          <span className="wabot-sess-score">
+                            {s.score != null ? `Resp ${s.score}/10` : ""}
+                            {s.excel_score != null
+                              ? `${s.score != null ? " · " : ""}Excel ${s.excel_score}/10`
+                              : ""}
+                          </span>
+                          <button
+                            className="icon-btn"
+                            title="Borrar evaluación"
+                            onClick={() => deleteSession(s.id)}
+                          >
+                            🗑
+                          </button>
+                          <span
+                            className="chevron"
+                            style={{ cursor: "pointer" }}
+                            onClick={() => setOpenSess((o) => (o === s.id ? null : s.id))}
+                          >
+                            ▾
+                          </span>
+                        </div>
+                        {openSess === s.id && (
+                          <div className="wabot-sess-body">
+                            {(s.answers || []).map((qa, i) => (
+                              <div className="wabot-qa" key={i}>
+                                <div className="wabot-qa-q">{qa.q}</div>
+                                <div className="wabot-qa-a">{qa.a}</div>
+                              </div>
+                            ))}
+                            {s.excel_detail && (
+                              <div className="wabot-excel">
+                                <h4>
+                                  Prueba de Excel — {s.excel_detail.total ?? s.excel_score}/
+                                  {s.excel_detail.max ?? 10}
+                                </h4>
+                                {s.excel_detail.summary && <p className="why">{s.excel_detail.summary}</p>}
+                                {(s.excel_detail.dimensions || []).map((d, i) => (
+                                  <div className="crit" key={i}>
+                                    <div className="crit-top">
+                                      <span className="cname">{d.name}</span>
+                                      <span className="cscore">
+                                        {d.score}/{d.max}
+                                      </span>
+                                    </div>
+                                    <p className="why">{d.justification}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+            </div>
+          ))
+        )}
+      </section>
+
+      <section className="card">
+        <h2 style={{ margin: 0 }}>🤖 Bot de WhatsApp — preguntas</h2>
+        <p className="field-hint" style={{ marginTop: 6 }}>
+          Acá editás las <strong>preguntas de cada puesto</strong>. El bot salta el menú: saluda con el
+          nombre del candidato y el aviso (vía la plantilla de Meta) y va directo a las preguntas del
+          puesto que corresponde a la búsqueda.
         </p>
+        <details style={{ marginTop: 6 }}>
+          <summary className="field-hint" style={{ cursor: "pointer" }}>
+            Mensaje inicial (referencia — lo maneja la plantilla de Meta)
+          </summary>
+          <textarea
+            className="posting-input"
+            rows={6}
+            value={initial}
+            onChange={(e) => setInitial(e.target.value)}
+          />
+          <button className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={saveInitial}>
+            Guardar texto de referencia
+          </button>
+        </details>
       </section>
 
       {areas
@@ -4681,61 +4810,6 @@ function WaBot({
           </section>
         ))}
 
-      <section className="card">
-        <div className="results-toolbar">
-          <h2 style={{ margin: 0 }}>📊 Evaluaciones</h2>
-          <span className="count">{sessions.length}</span>
-        </div>
-        {sessions.length === 0 ? (
-          <p className="empty">Todavía no hay evaluaciones por WhatsApp.</p>
-        ) : (
-          <div className="wabot-sessions">
-            {sessions.map((s) => (
-              <div className="wabot-sess" key={s.id}>
-                <div
-                  className="wabot-sess-head"
-                  onClick={() => setOpenSess((o) => (o === s.id ? null : s.id))}
-                >
-                  <span className="wabot-sess-name">{candName.get(s.candidate_id) || s.candidate_id}</span>
-                  <span className="wabot-sess-area">{areaLabel(s.area)}</span>
-                  <span className={`wabot-sess-status st-${s.status}`}>{s.status}</span>
-                  <span className="wabot-sess-score">
-                    {s.excel_score != null ? `Excel ${s.excel_score}/10` : ""}
-                  </span>
-                  <span className="chevron">▾</span>
-                </div>
-                {openSess === s.id && (
-                  <div className="wabot-sess-body">
-                    {(s.answers || []).map((qa, i) => (
-                      <div className="wabot-qa" key={i}>
-                        <div className="wabot-qa-q">{qa.q}</div>
-                        <div className="wabot-qa-a">{qa.a}</div>
-                      </div>
-                    ))}
-                    {s.excel_detail && (
-                      <div className="wabot-excel">
-                        <h4>Prueba de Excel — {s.excel_detail.total ?? s.excel_score}/{s.excel_detail.max ?? 10}</h4>
-                        {s.excel_detail.summary && <p className="why">{s.excel_detail.summary}</p>}
-                        {(s.excel_detail.dimensions || []).map((d, i) => (
-                          <div className="crit" key={i}>
-                            <div className="crit-top">
-                              <span className="cname">{d.name}</span>
-                              <span className="cscore">
-                                {d.score}/{d.max}
-                              </span>
-                            </div>
-                            <p className="why">{d.justification}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
     </>
   );
 }

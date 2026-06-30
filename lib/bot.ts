@@ -1,13 +1,19 @@
 // Motor del bot de reclutamiento por WhatsApp.
-// Flujo: 1er mensaje (plantilla) = saludo + selector de área (1-4). El candidato
-// elige → corremos las preguntas de ESA área (tabla bot_areas) → al final mandamos
-// el Excel y, al recibirlo resuelto, el mensaje final. Las preguntas se editan en
-// la app (por área). El área arranca por la búsqueda pero el candidato la confirma.
+// Flujo: 1er mensaje (plantilla) = saludo con nombre + aviso + la 1ª pregunta (los
+// minutos de viaje a la oficina). El candidato responde → seguimos con las preguntas
+// del PUESTO (según la búsqueda, tabla bot_areas) → puntuamos las respuestas con los
+// criterios del puesto → mandamos el Excel y, al recibirlo resuelto, el mensaje final.
+// Las preguntas del puesto se editan en la app.
 import { supabaseAdmin } from "./supabase";
 import { sendText, sendTemplate, uploadMedia, sendDocumentById, downloadMedia } from "./whatsapp";
 import { scoreExcel } from "./excel-score";
+import { scoreAnswers } from "./answers-score";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+// Dirección de la oficina (la 1ª pregunta de la plantilla pregunta el viaje hasta acá).
+const OFFICE = process.env.PLANT_ADDRESS || "Cervantes 2868, CABA";
+const TRAVEL_Q = `Minutos de viaje hasta ${OFFICE}`;
 
 // Baja el Excel de la prueba desde Supabase Storage (bucket privado, no público).
 async function fetchExcelBuffer(): Promise<{ buffer: Buffer; filename: string; mime: string } | null> {
@@ -36,6 +42,12 @@ interface AreaRow {
   enabled: boolean;
 }
 
+interface Answer {
+  q: string;
+  a: string;
+  at: string;
+}
+
 interface SessionRow {
   id: string;
   candidate_id: string;
@@ -44,7 +56,7 @@ interface SessionRow {
   status: string;
   current_index: number;
   area: string | null;
-  answers: { q: string; a: string; at: string }[];
+  answers: Answer[];
 }
 
 const nowIso = () => new Date().toISOString();
@@ -63,7 +75,7 @@ async function activeSession(phone: string): Promise<SessionRow | null> {
     .from("bot_sessions")
     .select("*")
     .in("phone", phoneVariants(phone))
-    .in("status", ["pending", "in_progress", "awaiting_excel"])
+    .in("status", ["awaiting_travel", "in_progress", "awaiting_excel"])
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -74,24 +86,6 @@ async function areaById(id: string | null): Promise<AreaRow | null> {
   if (!id) return null;
   const { data } = await supabaseAdmin().from("bot_areas").select("*").eq("id", id).maybeSingle();
   return (data as AreaRow | null) ?? null;
-}
-
-async function areaByPosition(pos: number): Promise<AreaRow | null> {
-  const { data } = await supabaseAdmin()
-    .from("bot_areas")
-    .select("*")
-    .eq("position", pos)
-    .maybeSingle();
-  return (data as AreaRow | null) ?? null;
-}
-
-async function initialMessage(): Promise<string> {
-  const { data } = await supabaseAdmin()
-    .from("app_settings")
-    .select("bot_initial_message")
-    .eq("id", "default")
-    .maybeSingle();
-  return (data as { bot_initial_message?: string } | null)?.bot_initial_message || "";
 }
 
 async function logMsg(sessionId: string, phone: string, direction: "in" | "out", body: string) {
@@ -107,10 +101,12 @@ async function say(s: SessionRow, text: string) {
   await logMsg(s.id, s.phone, "out", text);
 }
 
-// Arranca las preguntas de un área (manda la primera).
-async function startQuestions(s: SessionRow, area: AreaRow) {
-  await patch(s.id, { area: area.id, status: "in_progress", current_index: 0 });
-  await say({ ...s }, area.questions[0].q);
+// Primer nombre para el saludo: "Apellido, Nombre" o "Nombre Apellido" → "Nombre".
+function firstName(full: string): string {
+  const s = (full || "").trim();
+  if (!s) return "";
+  const base = s.includes(",") ? (s.split(",")[1] || "").trim() : s;
+  return (base.split(/\s+/)[0] || s).trim();
 }
 
 export interface InboundMsg {
@@ -128,6 +124,45 @@ const AUTO_REPLY =
 Soy el Asistente Virtual de Loekemeyer Srl
 Si deseas postularte, o saber el estado de tu postulación
 Escribe al siguiente mail: rrhhloeke@gmail.com`;
+
+// Cierra el tramo de preguntas: puntúa las respuestas con los criterios del puesto,
+// y manda el Excel (o el mensaje final si no hay Excel disponible).
+async function finishQuestions(s: SessionRow, answers: Answer[], area: AreaRow | null) {
+  let ansScore: number | null = null;
+  try {
+    let criteria: unknown = [];
+    let title = area?.label || "";
+    if (s.search_id) {
+      const { data } = await supabaseAdmin()
+        .from("searches")
+        .select("criteria, title")
+        .eq("id", s.search_id)
+        .maybeSingle();
+      criteria = (data as { criteria?: unknown } | null)?.criteria ?? [];
+      title = (data as { title?: string } | null)?.title || title;
+    }
+    ansScore = await scoreAnswers(answers, criteria, title);
+  } catch (err) {
+    console.error("No se pudo puntuar las respuestas:", err);
+  }
+
+  const ex = await fetchExcelBuffer();
+  if (ex) {
+    await patch(s.id, { answers, score: ansScore, status: "awaiting_excel" });
+    const cap = area?.excel_message || "Para terminar, resolvé esta prueba de Excel y reenviá el archivo resuelto por este chat.";
+    try {
+      const mediaId = await uploadMedia(ex.buffer, ex.filename, ex.mime);
+      await sendDocumentById(s.phone, mediaId, ex.filename, cap);
+      await logMsg(s.id, s.phone, "out", "[documento Excel]");
+    } catch (err) {
+      console.error("No se pudo enviar el Excel:", err);
+      await say({ ...s }, cap);
+    }
+  } else {
+    await patch(s.id, { answers, score: ansScore, status: "completed", completed_at: nowIso() });
+    await say({ ...s }, area?.final_message || "¡Gracias por tus respuestas! Te contactamos pronto.");
+  }
+}
 
 export async function handleInbound(msg: InboundMsg): Promise<void> {
   const phone = msg.from;
@@ -153,32 +188,22 @@ export async function handleInbound(msg: InboundMsg): Promise<void> {
     msg.text || (msg.documentId ? `[documento ${msg.documentName || ""}]` : "[mensaje]"),
   );
 
-  // 1) Selector de área (estado pending): esperamos un número 1-4.
-  if (s.status === "pending") {
-    const pick = (msg.text || "").match(/[1-4]/)?.[0];
-    if (!pick) {
-      const sel = await initialMessage();
-      await say(s, sel || "Por favor, respondé con el número del área (1, 2, 3 o 4).");
-      return;
+  // 1) Respuesta a la 1ª pregunta (la de la plantilla: minutos de viaje).
+  if (s.status === "awaiting_travel" && msg.text) {
+    const answers = Array.isArray(s.answers) ? s.answers : [];
+    answers.push({ q: TRAVEL_Q, a: msg.text, at: nowIso() });
+    const area = await areaById(s.area);
+    const qs = area?.questions ?? [];
+    if (qs.length > 0) {
+      await patch(s.id, { answers, status: "in_progress", current_index: 0 });
+      await say({ ...s }, qs[0].q);
+    } else {
+      await finishQuestions(s, answers, area);
     }
-    const area = await areaByPosition(Number(pick));
-    if (!area || !area.enabled) {
-      await say(s, "Esa opción no está disponible. Respondé con el número del área (1, 2, 3 o 4).");
-      return;
-    }
-    if (!Array.isArray(area.questions) || area.questions.length === 0) {
-      await say(
-        s,
-        `Por ahora no tenemos preguntas cargadas para ${area.label}. En breve te contactamos. ¡Gracias!`,
-      );
-      await patch(s.id, { area: area.id, status: "completed", completed_at: nowIso() });
-      return;
-    }
-    await startQuestions(s, area);
     return;
   }
 
-  // 2) En curso: guardamos la respuesta y avanzamos.
+  // 2) Preguntas del puesto: guardamos la respuesta y avanzamos.
   if (s.status === "in_progress" && msg.text) {
     const area = await areaById(s.area);
     const qs = area?.questions ?? [];
@@ -190,22 +215,7 @@ export async function handleInbound(msg: InboundMsg): Promise<void> {
       await patch(s.id, { answers, current_index: next });
       await say({ ...s }, qs[next].q);
     } else {
-      const ex = await fetchExcelBuffer();
-      if (ex) {
-        await patch(s.id, { answers, status: "awaiting_excel" });
-        const cap = area?.excel_message || "Resolvé esta prueba y reenviá el archivo por este chat.";
-        try {
-          const mediaId = await uploadMedia(ex.buffer, ex.filename, ex.mime);
-          await sendDocumentById(phone, mediaId, ex.filename, cap);
-          await logMsg(s.id, phone, "out", "[documento Excel]");
-        } catch (err) {
-          console.error("No se pudo enviar el Excel:", err);
-          await say({ ...s }, cap);
-        }
-      } else {
-        await patch(s.id, { answers, status: "completed", completed_at: nowIso() });
-        await say({ ...s }, area?.final_message || "¡Gracias por tus respuestas! Te contactamos pronto.");
-      }
+      await finishQuestions(s, answers, area);
     }
     return;
   }
@@ -249,7 +259,10 @@ export async function handleInbound(msg: InboundMsg): Promise<void> {
   }
 }
 
-/** Crea una sesión y manda el primer mensaje (plantilla con el selector de área). */
+/**
+ * Crea una sesión y manda el primer mensaje (plantilla: saludo con nombre + aviso +
+ * la 1ª pregunta). El área (puesto) sale de la búsqueda; no hay menú.
+ */
 export async function startSession(opts: {
   candidateId: string;
   searchId: string;
@@ -257,30 +270,49 @@ export async function startSession(opts: {
   templateName?: string;
   params?: string[];
 }): Promise<string> {
-  // Área por defecto según la búsqueda (el candidato igual la confirma con el selector).
-  let defaultArea: string | null = null;
+  // Área (puesto) y nombre del aviso, según la búsqueda.
+  let area: string | null = null;
+  let aviso = "";
   if (opts.searchId) {
     const { data } = await supabaseAdmin()
       .from("searches")
-      .select("bot_area")
+      .select("bot_area, title")
       .eq("id", opts.searchId)
       .maybeSingle();
-    defaultArea = (data as { bot_area?: string } | null)?.bot_area || null;
+    area = (data as { bot_area?: string } | null)?.bot_area || null;
+    aviso = (data as { title?: string } | null)?.title || "";
   }
+  // Nombre del candidato (para el saludo).
+  let candName = "";
+  if (opts.candidateId) {
+    const { data } = await supabaseAdmin()
+      .from("candidates")
+      .select("name")
+      .eq("id", opts.candidateId)
+      .maybeSingle();
+    candName = (data as { name?: string } | null)?.name || "";
+  }
+
   const id = `${opts.candidateId}-${Date.now()}`;
   await supabaseAdmin().from("bot_sessions").insert({
     id,
     candidate_id: opts.candidateId,
     search_id: opts.searchId || null,
     phone: opts.phone,
-    status: "pending",
+    status: "awaiting_travel",
     current_index: 0,
-    area: defaultArea,
+    area,
     answers: [],
   });
+
   const tpl = opts.templateName || process.env.RECRUIT_WA_TEMPLATE;
   if (tpl) {
-    await sendTemplate(opts.phone, tpl, "es_AR", opts.params || []);
+    // {{1}} = nombre del candidato, {{2}} = nombre del aviso. Sin vacíos (WhatsApp los rechaza).
+    const params =
+      opts.params && opts.params.length
+        ? opts.params
+        : [firstName(candName) || "candidato/a", aviso || "nuestra búsqueda"];
+    await sendTemplate(opts.phone, tpl, "es_AR", params);
     await logMsg(id, opts.phone, "out", `[plantilla ${tpl}]`);
   }
   return id;
