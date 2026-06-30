@@ -2431,9 +2431,30 @@ export default function Home() {
                   </button>
                 </>
               ) : (
-                <button className="btn btn-primary" onClick={() => startEvaluation(activeJob.id)}>
-                  {evalAll ? "Evaluar candidatos" : `Evaluar ${evalCount || "…"} candidatos`}
-                </button>
+                {(() => {
+                  const pendientes = activeJob.candidates.filter(
+                    (c) =>
+                      c.cvText &&
+                      c.status !== "descartado" &&
+                      c.scoreStatus !== "done" &&
+                      c.scoreStatus !== "scoring",
+                  ).length;
+                  const noNew = evalAll && pendientes === 0;
+                  return (
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => startEvaluation(activeJob.id)}
+                      disabled={noNew}
+                      title="Evalúa solo los candidatos nuevos (no re-evalúa ni cobra los ya evaluados)"
+                    >
+                      {noNew
+                        ? "Sin candidatos nuevos"
+                        : evalAll
+                          ? `Evaluar ${pendientes} nuevo${pendientes !== 1 ? "s" : ""}`
+                          : `Evaluar ${evalCount || "…"} candidatos`}
+                    </button>
+                  );
+                })()}
               )}
               <button className="btn btn-ghost" onClick={() => fileRef.current?.click()}>
                 + Agregar CV (archivo)
