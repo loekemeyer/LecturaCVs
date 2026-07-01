@@ -10,6 +10,13 @@ type Status = "nuevo" | "contactado" | "entrevistado" | "tomado" | "descartado";
 type ScoreStatus = "pending" | "scoring" | "done" | "error";
 // Calificación por color (triage rápido): primer nivel de clasificación.
 type Calificacion = "sincalificar" | "preseleccionado" | "favorito" | "descartado";
+// Resultado de la prueba de resolución (para mostrarlo en la ficha del candidato).
+type PruebaInfo = {
+  score: number;
+  solved?: boolean;
+  dimensions?: { name: string; score: number; max: number; justification: string }[];
+  summary?: string;
+};
 
 type Candidate = {
   id: string;
@@ -416,7 +423,7 @@ export default function Home() {
   // Prueba de resolución: candidato que la está rindiendo (pantalla completa) y
   // puntajes por candidato (candidate_id -> score) para mostrarlos en su ficha.
   const [examCand, setExamCand] = useState<{ id: string; name: string; searchId: string } | null>(null);
-  const [pruebaByCand, setPruebaByCand] = useState<Record<string, number>>({});
+  const [pruebaByCand, setPruebaByCand] = useState<Record<string, PruebaInfo>>({});
   // Compositor de mail abierto para un candidato (desde el tablero).
   const [mailCand, setMailCand] = useState<{ jobId: string; cand: Candidate } | null>(null);
   // Estado de conexión con Google Calendar.
@@ -627,9 +634,21 @@ export default function Home() {
       const r = await fetch("/api/prueba", { headers: authHeaders() });
       if (r.status === 401) return;
       const d = await r.json().catch(() => ({}));
-      const map: Record<string, number> = {};
-      for (const t of (d.tests || []) as { candidate_id?: string; score?: number }[]) {
-        if (t.candidate_id && t.score != null) map[t.candidate_id] = Number(t.score);
+      const map: Record<string, PruebaInfo> = {};
+      for (const t of (d.tests || []) as {
+        candidate_id?: string;
+        score?: number;
+        detail?: Omit<PruebaInfo, "score">;
+      }[]) {
+        if (t.candidate_id && t.score != null) {
+          const det = t.detail || {};
+          map[t.candidate_id] = {
+            score: Number(t.score),
+            solved: det.solved,
+            dimensions: det.dimensions,
+            summary: det.summary,
+          };
+        }
       }
       setPruebaByCand(map);
     } catch {
@@ -2660,6 +2679,9 @@ export default function Home() {
                 onNotes={(candId, t) => patchCandidate(activeJob.id, candId, { notes: t })}
                 onSendMail={(cand) => setMailCand({ jobId: activeJob.id, cand })}
                 onStartWa={(cand) => startWaEval(activeJob.id, cand)}
+                onStartExam={(cand) =>
+                  setExamCand({ id: cand.id, name: cand.name, searchId: activeJob.id })
+                }
               />
             ) : (
               <>
@@ -2810,7 +2832,7 @@ export default function Home() {
                     onReevaluate={() => reevaluateOne(activeJob.id, c.id)}
                     onDelete={() => deleteCandidate(activeJob.id, c.id)}
                     onStartExam={() => setExamCand({ id: c.id, name: c.name, searchId: activeJob.id })}
-                    pruebaScore={pruebaByCand[c.id]}
+                    prueba={pruebaByCand[c.id]}
                     onNotes={(t) => patchCandidate(activeJob.id, c.id, { notes: t })}
                     jobTitle={activeJob.title}
                     otherJobs={(candidateIndex.get(norm(c.name)) ?? []).filter(
@@ -3166,7 +3188,6 @@ export default function Home() {
           authHeaders={authHeaders}
           onClose={() => setExamCand(null)}
           onSubmitted={(score) => {
-            setExamCand(null);
             void loadPruebas();
             showToast(`Prueba enviada ✓ Puntaje: ${score}/10`);
           }}
@@ -3316,7 +3337,7 @@ function CandidateRow({
   onReevaluate,
   onDelete,
   onStartExam,
-  pruebaScore,
+  prueba,
   pendingUndo,
   undoUntil,
   onUndo,
@@ -3338,7 +3359,7 @@ function CandidateRow({
   onReevaluate: () => void;
   onDelete: () => void;
   onStartExam?: () => void;
-  pruebaScore?: number;
+  prueba?: PruebaInfo;
   pendingUndo?: boolean;
   undoUntil?: number;
   onUndo?: () => void;
@@ -3475,6 +3496,26 @@ function CandidateRow({
               ))}
             </div>
           )}
+          {prueba && (
+            <div className="wabot-excel" style={{ marginTop: 8 }}>
+              <h4>
+                🧩 Prueba de resolución — {prueba.score}/10{" "}
+                {prueba.solved ? "· resuelta" : "· no resuelta"}
+              </h4>
+              {prueba.summary && <p className="why">{prueba.summary}</p>}
+              {(prueba.dimensions || []).map((d, i) => (
+                <div className="crit" key={i}>
+                  <div className="crit-top">
+                    <span className="cname">{d.name}</span>
+                    <span className="cscore">
+                      {d.score}/{d.max}
+                    </span>
+                  </div>
+                  <p className="why">{d.justification}</p>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="result-actions">
             <button
               className="btn btn-ghost"
@@ -3520,7 +3561,7 @@ function CandidateRow({
                 title="Abrir la prueba de resolución de problemas para este candidato (en esta PC)"
               >
                 🧩 Prueba de resolución
-                {pruebaScore != null ? ` · ${pruebaScore}/10` : ""}
+                {prueba ? ` · ${prueba.score}/10` : ""}
               </button>
             )}
             <button className="btn btn-ghost" onClick={onDelete} title="Borrar este candidato">
@@ -4124,6 +4165,7 @@ function Board({
   onNotes,
   onSendMail,
   onStartWa,
+  onStartExam,
 }: {
   job: Job;
   stages: Stage[];
@@ -4137,6 +4179,7 @@ function Board({
   onNotes: (candId: string, t: string) => void;
   onSendMail: (cand: Candidate) => void;
   onStartWa: (cand: Candidate) => void;
+  onStartExam: (cand: Candidate) => void;
 }) {
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
   const toggleCard = (id: string) =>
@@ -4271,6 +4314,13 @@ function Board({
                               onClick={() => onStartWa(c)}
                             >
                               🤖
+                            </button>
+                            <button
+                              className="icon-btn"
+                              title="Prueba de resolución de problemas"
+                              onClick={() => onStartExam(c)}
+                            >
+                              🧩
                             </button>
                             <button
                               className="icon-btn"

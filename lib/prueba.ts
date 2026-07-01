@@ -3,6 +3,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   PRUEBA_CAJA,
   PRUEBA_ERROR_TICKET,
+  PRUEBA_PRICE,
+  PRUEBA_PRECIO_CORRECTO,
   correctTotals,
   correctCommissions,
   type PruebaSubmission,
@@ -27,11 +29,14 @@ const clamp = (n: number, lo = 0, hi = 10) => Math.max(lo, Math.min(hi, n));
 export async function scoreProblemTest(sub: PruebaSubmission): Promise<PruebaResult> {
   const correct = correctTotals();
   const finalSum = Object.values(sub.rowTotals || {}).reduce((a, b) => a + (Number(b) || 0), 0);
-  const solved = !!sub.closed && finalSum === PRUEBA_CAJA;
+  const totalEntered = Number(sub.totalEntered) || 0;
+  const solved = !!sub.closed && finalSum === PRUEBA_CAJA && totalEntered === PRUEBA_CAJA;
+
+  const priceOk = Number(sub.priceEntered) === PRUEBA_PRECIO_CORRECTO;
   const fixedRightRow = Number(sub.rowTotals?.[PRUEBA_ERROR_TICKET]) === correct[PRUEBA_ERROR_TICKET];
   let tampered = 0;
   for (const t in correct) {
-    if (t === PRUEBA_ERROR_TICKET) continue;
+    if (t === PRUEBA_ERROR_TICKET || t === PRUEBA_PRICE.ticket) continue;
     if (Number(sub.rowTotals?.[t]) !== correct[t]) tampered++;
   }
   const correctC = correctCommissions();
@@ -42,12 +47,13 @@ export async function scoreProblemTest(sub: PruebaSubmission): Promise<PruebaRes
   const mins = (sub.durationSec || 0) / 60;
   let reaccion = solved ? 10 : fixedRightRow ? 5 : 2;
   if (solved) {
-    if (mins > 20) reaccion -= 3;
-    else if (mins > 12) reaccion -= 1.5;
+    if (mins > 25) reaccion -= 3;
+    else if (mins > 15) reaccion -= 1.5;
     if ((sub.attempts || 0) > 4) reaccion -= 2;
   }
   reaccion = clamp(reaccion);
 
+  const precio = priceOk ? 10 : 0;
   const resolucion = solved ? 10 : fixedRightRow ? 5 : 0;
   const comisiones = commTotal ? (commOk / commTotal) * 10 : 0;
   const metodo = fixedRightRow ? (tampered ? 6 : 10) : tampered ? 2 : 4;
@@ -64,7 +70,7 @@ export async function scoreProblemTest(sub: PruebaSubmission): Promise<PruebaRes
       messages: [
         {
           role: "user",
-          content: `Contexto: había una fila (Espumadera) con el total mal cargado ($65.000 en vez de $50.000), que inflaba el total en $15.000. ¿Resolvió correctamente?: ${
+          content: `Contexto: había una fila (Espumadera) con el total mal cargado ($60.000 en vez de $45.000), que inflaba el total en $15.000; además debía calcular el precio de venta de un artículo (costo + 60%). ¿Resolvió correctamente?: ${
             solved ? "sí" : "no"
           }.\n\nExplicación del candidato:\n"""${(sub.explanation || "").slice(0, 2000)}"""`,
         },
@@ -80,6 +86,14 @@ export async function scoreProblemTest(sub: PruebaSubmission): Promise<PruebaRes
   }
 
   const dims: Dim[] = [
+    {
+      name: "Precio de venta",
+      score: Math.round(precio * 10) / 10,
+      max: 10,
+      justification: priceOk
+        ? `Calculó bien el precio ($${PRUEBA_PRECIO_CORRECTO.toLocaleString("es-AR")}).`
+        : `Precio incorrecto (debía ser $${PRUEBA_PRECIO_CORRECTO.toLocaleString("es-AR")}: costo + 60%).`,
+    },
     {
       name: "Resolución del problema",
       score: Math.round(resolucion * 10) / 10,
@@ -124,8 +138,8 @@ export async function scoreProblemTest(sub: PruebaSubmission): Promise<PruebaRes
     },
   ];
 
-  const pesos = [3, 1.5, 2, 1.5, 2];
-  const vals = [resolucion, comisiones, reaccion, metodo, comunica];
+  const pesos = [1.5, 2.5, 1.5, 1.5, 1, 2];
+  const vals = [precio, resolucion, comisiones, reaccion, metodo, comunica];
   const total = vals.reduce((a, v, i) => a + v * pesos[i], 0) / pesos.reduce((a, b) => a + b, 0);
 
   return {
