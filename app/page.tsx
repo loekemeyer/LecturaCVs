@@ -239,6 +239,22 @@ const nameKey = (s: string) =>
 // Estimaciones de costo del bot (US$ aprox.). IA = Anthropic; WhatsApp = Meta.
 const BOT_COST = { answers: 0.005, excel: 0.01, waConversation: 0.034 };
 
+// Fecha y hora (es-AR) de cuándo respondió el candidato.
+function fmtAnswerTime(at?: string): string {
+  if (!at) return "";
+  try {
+    return new Date(at).toLocaleString("es-AR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
 // Convierte los links de un texto en enlaces clickeables (ej. portafolios).
 function linkify(text: string): React.ReactNode {
   const parts = String(text ?? "").split(/(https?:\/\/[^\s]+|www\.[^\s]+)/gi);
@@ -4718,7 +4734,7 @@ interface BotSess {
   status: string;
   score: number | null;
   excel_score: number | null;
-  answers: { q: string; a: string }[];
+  answers: { q: string; a: string; at?: string }[];
   excel_detail?: {
     summary?: string;
     total?: number;
@@ -4813,6 +4829,54 @@ function WaBot({
       else notify(d.error || "No se pudo abrir el Excel.");
     } catch {
       notify("No se pudo abrir el Excel.");
+    }
+  }
+
+  // Imprime las respuestas de UN candidato (con fecha y hora de cada respuesta).
+  function printAnswers(s: BotSess) {
+    const esc = (t: string) =>
+      String(t ?? "").replace(
+        /[&<>]/g,
+        (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[m] || m,
+      );
+    const name = s.candidate_name || candName.get(s.candidate_id) || "Candidato";
+    const scoreLine = [
+      s.score != null ? `Respuestas: ${s.score}/10` : null,
+      s.excel_score != null ? `Excel: ${s.excel_score}/10` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const items = (s.answers || [])
+      .map(
+        (qa, i) =>
+          `<div class="qa"><div class="q">${i + 1}. ${esc(qa.q)}</div><div class="a">${esc(
+            qa.a,
+          )}</div>${qa.at ? `<div class="at">🕒 ${esc(fmtAnswerTime(qa.at))}</div>` : ""}</div>`,
+      )
+      .join("");
+    const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(
+      name,
+    )}</title><style>
+  body{font-family:Arial,Helvetica,sans-serif;font-size:13pt;color:#000;margin:24px;max-width:820px}
+  h1{font-size:16pt;margin:0 0 4px}
+  .sub{color:#333;margin:0 0 16px}
+  .qa{margin:0 0 14px;page-break-inside:avoid}
+  .q{font-weight:bold;white-space:pre-wrap}
+  .a{white-space:pre-wrap;margin:2px 0}
+  .at{font-size:10pt;color:#666}
+  @media print{body{margin:0}}
+</style></head><body>
+<h1>${esc(name)}</h1>
+<p class="sub">${esc(scoreLine)}</p>
+${items}
+<script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>
+</body></html>`;
+    const w = window.open("", "_blank");
+    if (w) {
+      w.document.write(html);
+      w.document.close();
+    } else {
+      notify("Permití las ventanas emergentes para imprimir.");
     }
   }
 
@@ -4978,8 +5042,20 @@ function WaBot({
                               <div className="wabot-qa" key={i}>
                                 <div className="wabot-qa-q">{qa.q}</div>
                                 <div className="wabot-qa-a">{linkify(qa.a)}</div>
+                                {qa.at && (
+                                  <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+                                    🕒 {fmtAnswerTime(qa.at)}
+                                  </div>
+                                )}
                               </div>
                             ))}
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              style={{ marginTop: 8 }}
+                              onClick={() => printAnswers(s)}
+                            >
+                              🖨 Imprimir respuestas
+                            </button>
                             {(s.excel_detail || s.excel_score != null) && (
                               <button
                                 className="btn btn-ghost btn-sm"
