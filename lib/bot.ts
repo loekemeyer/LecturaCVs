@@ -191,6 +191,14 @@ export async function handleInbound(msg: InboundMsg): Promise<void> {
 
   // 1) Respuesta a la 1ª pregunta (la de la plantilla: minutos de viaje).
   if (s.status === "awaiting_travel" && msg.text) {
+    // Debe responder con un número (minutos). Si no, se lo pedimos y no avanzamos.
+    if (!/\d/.test(msg.text)) {
+      await say(
+        s,
+        "Para continuar, indicá tu respuesta en número: ¿cuántos MINUTOS de viaje tenés hasta la oficina? (por ejemplo: 30)",
+      );
+      return;
+    }
     const answers = Array.isArray(s.answers) ? s.answers : [];
     answers.push({ q: TRAVEL_Q, a: msg.text, at: nowIso() });
     const area = await areaById(s.area);

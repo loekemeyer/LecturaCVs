@@ -243,6 +243,8 @@ Reflejá explícitamente en el resumen, las fortalezas y las dudas qué tan bien
 
   const instruction = `La fecha de hoy es ${fechaHoy}. Tomá SIEMPRE esta fecha como el "presente" para calcular cualquier antigüedad, la duración de cada empleo y la edad del candidato. No uses ninguna otra fecha de referencia: si un puesto empezó en una fecha y sigue vigente, su duración va desde esa fecha hasta hoy.
 
+Sobre los ESTUDIOS/carreras: NO asumas el año que cursa ni cuánto le falta. Si el CV indica el año de inicio (por ejemplo 2025) o el año/porcentaje que cursa, usalo tal cual: una carrera iniciada hace poco significa que está en los PRIMEROS años (recién empezando), NO en el último. No digas que está "por recibirse", "en el último año" ni "muy avanzado" salvo que el CV lo indique explícitamente.
+
 Contexto del puesto:
 ${jobContext.trim() || "(No especificado.)"}
 
