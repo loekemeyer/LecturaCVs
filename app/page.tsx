@@ -4734,6 +4734,7 @@ interface BotSess {
   status: string;
   score: number | null;
   excel_score: number | null;
+  completed_at?: string | null;
   answers: { q: string; a: string; at?: string }[];
   excel_detail?: {
     summary?: string;
@@ -4846,29 +4847,35 @@ function WaBot({
     ]
       .filter(Boolean)
       .join(" · ");
+    const when = (at?: string | null) => (at ? ` (🕒 ${esc(fmtAnswerTime(at))})` : "");
     const items = (s.answers || [])
       .map(
         (qa, i) =>
           `<div class="qa"><div class="q">${i + 1}. ${esc(qa.q)}</div><div class="a">${esc(
             qa.a,
-          )}</div>${qa.at ? `<div class="at">🕒 ${esc(fmtAnswerTime(qa.at))}</div>` : ""}</div>`,
+          )}${when(qa.at)}</div></div>`,
       )
       .join("");
+    const excelBlock =
+      s.excel_score != null
+        ? `<div class="qa"><div class="q">Prueba de Excel</div><div class="a">Puntaje: ${
+            s.excel_score
+          }/10${when(s.completed_at)}</div></div>`
+        : "";
     const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(
       name,
     )}</title><style>
-  body{font-family:Arial,Helvetica,sans-serif;font-size:13pt;color:#000;margin:24px;max-width:820px}
-  h1{font-size:16pt;margin:0 0 4px}
-  .sub{color:#333;margin:0 0 16px}
+  body{font-family:Arial,Helvetica,sans-serif;font-size:14pt;color:#000;margin:24px;max-width:820px;text-align:justify}
+  h1{font-size:16pt;text-align:center;text-decoration:underline;font-weight:bold;margin:0 0 6px}
+  .sub{font-size:14pt;text-align:center;margin:0 0 18px}
   .qa{margin:0 0 14px;page-break-inside:avoid}
-  .q{font-weight:bold;white-space:pre-wrap}
-  .a{white-space:pre-wrap;margin:2px 0}
-  .at{font-size:10pt;color:#666}
+  .q{font-size:12pt;font-weight:bold;white-space:pre-wrap}
+  .a{font-size:14pt;white-space:pre-wrap;margin:2px 0}
   @media print{body{margin:0}}
 </style></head><body>
 <h1>${esc(name)}</h1>
 <p class="sub">${esc(scoreLine)}</p>
-${items}
+${items}${excelBlock}
 <script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>
 </body></html>`;
     const w = window.open("", "_blank");
@@ -5071,6 +5078,11 @@ ${items}
                                   Prueba de Excel — {s.excel_detail.total ?? s.excel_score}/
                                   {s.excel_detail.max ?? 10}
                                 </h4>
+                                {s.completed_at && (
+                                  <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>
+                                    🕒 Enviado: {fmtAnswerTime(s.completed_at)}
+                                  </div>
+                                )}
                                 {s.excel_detail.summary && <p className="why">{s.excel_detail.summary}</p>}
                                 {(s.excel_detail.dimensions || []).map((d, i) => (
                                   <div className="crit" key={i}>
