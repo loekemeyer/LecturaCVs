@@ -4691,6 +4691,7 @@ interface AreaCfg {
   excel_message: string | null;
   final_message: string | null;
   enabled: boolean;
+  send_excel?: boolean;
 }
 interface BotSess {
   id: string;
@@ -5072,13 +5073,25 @@ function WaBot({
             >
               + Agregar pregunta
             </button>
-            <h4 style={{ marginTop: 12 }}>Mensaje al enviar el Excel</h4>
-            <textarea
-              className="posting-input"
-              rows={3}
-              value={a.excel_message || ""}
-              onChange={(e) => setArea(a.id, { excel_message: e.target.value })}
-            />
+            <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12 }}>
+              <input
+                type="checkbox"
+                checked={a.send_excel !== false}
+                onChange={(e) => setArea(a.id, { send_excel: e.target.checked })}
+              />
+              Enviar prueba de Excel al final
+            </label>
+            {a.send_excel !== false && (
+              <>
+                <h4 style={{ marginTop: 12 }}>Mensaje al enviar el Excel</h4>
+                <textarea
+                  className="posting-input"
+                  rows={3}
+                  value={a.excel_message || ""}
+                  onChange={(e) => setArea(a.id, { excel_message: e.target.value })}
+                />
+              </>
+            )}
             <h4 style={{ marginTop: 12 }}>Mensaje final</h4>
             <textarea
               className="posting-input"

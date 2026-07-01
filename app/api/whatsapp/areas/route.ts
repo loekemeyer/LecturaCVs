@@ -31,6 +31,7 @@ export async function POST(req: Request) {
       excel_message?: string;
       final_message?: string;
       enabled?: boolean;
+      send_excel?: boolean;
     };
   };
   try {
@@ -58,6 +59,7 @@ export async function POST(req: Request) {
           excel_message: a.excel_message ?? null,
           final_message: a.final_message ?? null,
           enabled: a.enabled !== false,
+          send_excel: a.send_excel !== false,
           updated_at: new Date().toISOString(),
         })
         .eq("id", a.id);

@@ -40,6 +40,7 @@ interface AreaRow {
   excel_message: string | null;
   final_message: string | null;
   enabled: boolean;
+  send_excel?: boolean;
 }
 
 interface Answer {
@@ -147,7 +148,9 @@ async function finishQuestions(s: SessionRow, answers: Answer[], area: AreaRow |
     console.error("No se pudo puntuar las respuestas:", err);
   }
 
-  const ex = await fetchExcelBuffer();
+  // La prueba de Excel solo se manda si el área la tiene activada (Diseño/Operario no).
+  const wantsExcel = area?.send_excel !== false;
+  const ex = wantsExcel ? await fetchExcelBuffer() : null;
   if (ex) {
     await patch(s.id, { answers, score: ansScore, status: "awaiting_excel" });
     const cap = area?.excel_message || "Para terminar, resolvé esta prueba de Excel y reenviá el archivo resuelto por este chat.";
