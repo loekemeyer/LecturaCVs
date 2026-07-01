@@ -4819,9 +4819,9 @@ function WaBot({
     const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Reporte — ${esc(
       g.title,
     )}</title><style>
-  body{font-family:Arial,Helvetica,sans-serif;font-size:14pt;color:#000;margin:24px}
+  body{font-family:Arial,Helvetica,sans-serif;font-size:14pt;color:#000;margin:24px;text-align:center}
   h1{font-size:16pt;margin:0 0 12px}
-  table{border-collapse:collapse}
+  table{border-collapse:collapse;margin:0 auto;text-align:left}
   th,td{border:1px solid #000;padding:3px 8px;background:none}
   th{white-space:normal;text-align:center;font-weight:bold}
   td{white-space:nowrap}
