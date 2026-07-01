@@ -10,6 +10,30 @@ interface QA {
   a: string;
 }
 
+// Detecta si en la parte "día habitual" el candidato copió/pegó las tareas del CV
+// (o solo listó tareas) en vez de describir la rutina de un día. Devuelve true si
+// hay que pedirle que la reescriba. Ante la duda, devuelve false (no molesta de más).
+export async function isCopiedDailyDescription(answer: string, cvText: string): Promise<boolean> {
+  if (!answer || answer.trim().length < 10) return false;
+  const client = new Anthropic();
+  const cv = (cvText || "").slice(0, 6000);
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 10,
+    system:
+      "A un candidato se le pidió describir cómo es un DÍA HABITUAL en su último empleo: una narración de su rutina/jornada (horarios, qué hacía a la mañana, a la tarde, etc.), NO un listado de tareas. Recibís su respuesta y (si hay) su CV. Respondé ÚNICAMENTE 'COPIA' si la parte del 'día habitual' es básicamente un COPIA-PEGA del CV o una simple LISTA de tareas sin describir la rutina de un día. Respondé 'OK' si describe una jornada/rutina real, aunque sea breve. Ante la duda, respondé 'OK'. Nada más que 'COPIA' u 'OK'.",
+    messages: [
+      {
+        role: "user",
+        content: `${cv ? `CV del candidato (para comparar):\n${cv}\n\n` : ""}Respuesta del candidato:\n${answer}\n\n¿COPIA u OK?`,
+      },
+    ],
+  });
+  const block = response.content.find((b) => b.type === "text");
+  const raw = (block && block.type === "text" ? block.text : "").toUpperCase();
+  return raw.includes("COPIA");
+}
+
 // Acepta criterios en cualquier forma razonable (name/label, description/detail…).
 function critToText(criteria: unknown): string {
   if (!Array.isArray(criteria) || criteria.length === 0) return "(sin criterios definidos)";

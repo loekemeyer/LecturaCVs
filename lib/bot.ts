@@ -7,13 +7,23 @@
 import { supabaseAdmin } from "./supabase";
 import { sendText, sendTemplate, uploadMedia, sendDocumentById, downloadMedia } from "./whatsapp";
 import { scoreExcel } from "./excel-score";
-import { scoreAnswers } from "./answers-score";
+import { scoreAnswers, isCopiedDailyDescription } from "./answers-score";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 // Dirección de la oficina (la 1ª pregunta de la plantilla pregunta el viaje hasta acá).
 const OFFICE = process.env.PLANT_ADDRESS || "Cervantes 2868, CABA";
 const TRAVEL_Q = `Minutos de viaje hasta ${OFFICE}`;
+
+// Pregunta del "día habitual" (últimos empleos): detectamos si copian/pegan del CV.
+function isDailyQuestion(q: string): boolean {
+  const n = (q || "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+  return n.includes("dia habitual");
+}
+const DAILY_REPROMPT = `Observación:
+- Breve descripción de un día habitual: no se refiere a la descripción de tareas ya indicadas en tu CV.
+Por favor describí brevemente cómo era un día habitual en tu último empleo.
+Ej: Mi jornada era de 8:30 a 17:30. Llegaba a las 8hs, desayunaba. A las 8:30 comenzaba mi jornada recibiendo de mi jefe la prioridad del día. Luego cargaba facturas en el sistema. Y a la tarde hacía los pagos a proveedores hasta las 17:30.`;
 
 // Baja el Excel de la prueba desde Supabase Storage (bucket privado, no público).
 async function fetchExcelBuffer(): Promise<{ buffer: Buffer; filename: string; mime: string } | null> {
@@ -58,6 +68,7 @@ interface SessionRow {
   current_index: number;
   area: string | null;
   answers: Answer[];
+  reprompted_daily?: boolean;
 }
 
 const nowIso = () => new Date().toISOString();
@@ -87,6 +98,17 @@ async function areaById(id: string | null): Promise<AreaRow | null> {
   if (!id) return null;
   const { data } = await supabaseAdmin().from("bot_areas").select("*").eq("id", id).maybeSingle();
   return (data as AreaRow | null) ?? null;
+}
+
+// Texto del CV del candidato (para comparar la respuesta del "día habitual").
+async function candidateCvText(candidateId: string): Promise<string> {
+  if (!candidateId) return "";
+  const { data } = await supabaseAdmin()
+    .from("candidates")
+    .select("cv_text")
+    .eq("id", candidateId)
+    .maybeSingle();
+  return (data as { cv_text?: string } | null)?.cv_text || "";
 }
 
 async function logMsg(sessionId: string, phone: string, direction: "in" | "out", body: string) {
@@ -219,9 +241,28 @@ export async function handleInbound(msg: InboundMsg): Promise<void> {
   if (s.status === "in_progress" && msg.text) {
     const area = await areaById(s.area);
     const qs = area?.questions ?? [];
-    const answers = Array.isArray(s.answers) ? s.answers : [];
     const idx = s.current_index;
-    answers.push({ q: qs[idx]?.q || "", a: msg.text, at: nowIso() });
+    const currentQ = qs[idx]?.q || "";
+
+    // "Día habitual": si copian/pegan las tareas del CV, pedimos que lo reescriban
+    // (una sola vez, para no trabar la conversación).
+    if (isDailyQuestion(currentQ) && !s.reprompted_daily) {
+      let copied = false;
+      try {
+        const cv = await candidateCvText(s.candidate_id);
+        copied = await isCopiedDailyDescription(msg.text, cv);
+      } catch (err) {
+        console.error("No se pudo validar el día habitual:", err);
+      }
+      if (copied) {
+        await patch(s.id, { reprompted_daily: true });
+        await say(s, DAILY_REPROMPT);
+        return; // no avanzamos: esperamos que reescriba
+      }
+    }
+
+    const answers = Array.isArray(s.answers) ? s.answers : [];
+    answers.push({ q: currentQ, a: msg.text, at: nowIso() });
     const next = idx + 1;
     if (next < qs.length) {
       await patch(s.id, { answers, current_index: next });
