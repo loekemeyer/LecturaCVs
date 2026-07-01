@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createClient } from "@supabase/supabase-js";
 import type { Criterion, Evaluation } from "@/lib/types";
+import ExamPrueba from "./ExamPrueba";
 
 type CriterionDraft = { id: string; name: string; weight: number; description: string };
 type Status = "nuevo" | "contactado" | "entrevistado" | "tomado" | "descartado";
@@ -412,6 +413,10 @@ export default function Home() {
   const [costTab, setCostTab] = useState<"cvs" | "bot">("cvs");
   // Sesiones del bot (para el gasto del bot). Se cargan al abrir el detalle.
   const [botSessions, setBotSessions] = useState<{ score: number | null; excel_score: number | null }[]>([]);
+  // Prueba de resolución: candidato que la está rindiendo (pantalla completa) y
+  // puntajes por candidato (candidate_id -> score) para mostrarlos en su ficha.
+  const [examCand, setExamCand] = useState<{ id: string; name: string; searchId: string } | null>(null);
+  const [pruebaByCand, setPruebaByCand] = useState<Record<string, number>>({});
   // Compositor de mail abierto para un candidato (desde el tablero).
   const [mailCand, setMailCand] = useState<{ jobId: string; cand: Candidate } | null>(null);
   // Estado de conexión con Google Calendar.
@@ -484,6 +489,12 @@ export default function Home() {
         setLoaded(true);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
+
+  // Puntajes de la prueba de resolución (cuando hay sesión).
+  useEffect(() => {
+    if (authed) void loadPruebas();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
 
@@ -608,6 +619,22 @@ export default function Home() {
     }
     jobs = jobs.filter((j) => !(j.title === "Nueva búsqueda" && (j.candidates?.length ?? 0) === 0));
     return { jobs, sedes, companyValues, bookingUrl };
+  }
+
+  // Puntajes de la prueba de resolución por candidato (para mostrarlos en la ficha).
+  async function loadPruebas() {
+    try {
+      const r = await fetch("/api/prueba", { headers: authHeaders() });
+      if (r.status === 401) return;
+      const d = await r.json().catch(() => ({}));
+      const map: Record<string, number> = {};
+      for (const t of (d.tests || []) as { candidate_id?: string; score?: number }[]) {
+        if (t.candidate_id && t.score != null) map[t.candidate_id] = Number(t.score);
+      }
+      setPruebaByCand(map);
+    } catch {
+      /* sin datos de pruebas */
+    }
   }
 
   // "Foto" del estado para comparar contra lo último subido (clave -> JSON).
@@ -2782,6 +2809,8 @@ export default function Home() {
                     onViewCv={openCv}
                     onReevaluate={() => reevaluateOne(activeJob.id, c.id)}
                     onDelete={() => deleteCandidate(activeJob.id, c.id)}
+                    onStartExam={() => setExamCand({ id: c.id, name: c.name, searchId: activeJob.id })}
+                    pruebaScore={pruebaByCand[c.id]}
                     onNotes={(t) => patchCandidate(activeJob.id, c.id, { notes: t })}
                     jobTitle={activeJob.title}
                     otherJobs={(candidateIndex.get(norm(c.name)) ?? []).filter(
@@ -3130,6 +3159,20 @@ export default function Home() {
         </div>
       )}
 
+      {examCand && (
+        <ExamPrueba
+          cand={{ id: examCand.id, name: examCand.name }}
+          searchId={examCand.searchId}
+          authHeaders={authHeaders}
+          onClose={() => setExamCand(null)}
+          onSubmitted={(score) => {
+            setExamCand(null);
+            void loadPruebas();
+            showToast(`Prueba enviada ✓ Puntaje: ${score}/10`);
+          }}
+        />
+      )}
+
       {compareOpen &&
         (() => {
           const items = (activeJob?.candidates ?? []).filter((c) => compareSel.has(c.id));
@@ -3272,6 +3315,8 @@ function CandidateRow({
   onViewCv,
   onReevaluate,
   onDelete,
+  onStartExam,
+  pruebaScore,
   pendingUndo,
   undoUntil,
   onUndo,
@@ -3292,6 +3337,8 @@ function CandidateRow({
   onViewCv: (c: { name: string; emailUid?: number; cvText?: string }) => void;
   onReevaluate: () => void;
   onDelete: () => void;
+  onStartExam?: () => void;
+  pruebaScore?: number;
   pendingUndo?: boolean;
   undoUntil?: number;
   onUndo?: () => void;
@@ -3466,6 +3513,16 @@ function CandidateRow({
             <button className="btn btn-ghost" onClick={copyContactMessage}>
               {copied ? "✓ Mensaje copiado" : "💬 Copiar mensaje"}
             </button>
+            {onStartExam && (
+              <button
+                className="btn btn-ghost"
+                onClick={onStartExam}
+                title="Abrir la prueba de resolución de problemas para este candidato (en esta PC)"
+              >
+                🧩 Prueba de resolución
+                {pruebaScore != null ? ` · ${pruebaScore}/10` : ""}
+              </button>
+            )}
             <button className="btn btn-ghost" onClick={onDelete} title="Borrar este candidato">
               🗑 Borrar
             </button>
