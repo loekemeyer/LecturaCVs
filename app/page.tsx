@@ -3397,31 +3397,40 @@ function CandidateRow({
             </div>
           )}
           <div className="result-actions">
-            {(cand.cvText || cand.emailUid != null) && (
-              <button
-                className="btn btn-ghost"
-                onClick={() =>
-                  onViewCv({ name: cand.name, emailUid: cand.emailUid, cvText: cand.cvText })
-                }
-              >
-                📄 Ver CV completo
-              </button>
-            )}
-            {cand.cvText && (
-              <button
-                className="btn btn-ghost"
-                onClick={onReevaluate}
-                disabled={cand.scoreStatus === "scoring"}
-              >
-                {cand.scoreStatus === "scoring" ? (
-                  <>
-                    <span className="spinner" /> Re-evaluando…
-                  </>
-                ) : (
-                  "🔄 Re-evaluar"
-                )}
-              </button>
-            )}
+            <button
+              className="btn btn-ghost"
+              onClick={() =>
+                onViewCv({
+                  name: cand.name,
+                  emailUid: cand.emailUid,
+                  cvText:
+                    cand.cvText ||
+                    (cand.evaluation?.summary
+                      ? `(Este CV se cargó como imagen: no hay texto del CV guardado.)\n\nResumen de la IA:\n${cand.evaluation.summary}`
+                      : "(No hay CV para mostrar: se cargó como imagen.)"),
+                })
+              }
+            >
+              📄 Ver CV completo
+            </button>
+            <button
+              className="btn btn-ghost"
+              onClick={onReevaluate}
+              disabled={cand.scoreStatus === "scoring" || !cand.cvText}
+              title={
+                !cand.cvText
+                  ? "Este CV se cargó como imagen (sin texto): no se puede re-evaluar. Volvé a subirlo como PDF."
+                  : undefined
+              }
+            >
+              {cand.scoreStatus === "scoring" ? (
+                <>
+                  <span className="spinner" /> Re-evaluando…
+                </>
+              ) : (
+                "🔄 Re-evaluar"
+              )}
+            </button>
             <button className="btn btn-ghost" onClick={copyContactMessage}>
               {copied ? "✓ Mensaje copiado" : "💬 Copiar mensaje"}
             </button>
@@ -4743,6 +4752,10 @@ function WaBot({
   // Evaluaciones agrupadas por aviso (búsqueda). Lista TODOS los avisos; los que
   // tienen evaluaciones primero. Las sesiones sin aviso conocido van a "Sin aviso".
   const avisoGroups = useMemo(() => {
+    // Puntaje para ordenar: prioriza la prueba de Excel y desempata por respuestas.
+    const scoreKey = (s: BotSess) =>
+      (s.excel_score != null ? s.excel_score : -1) * 100 + (s.score != null ? s.score : -1);
+    const sortByScore = (arr: BotSess[]) => [...arr].sort((a, b) => scoreKey(b) - scoreKey(a));
     const byId = new Map<string, BotSess[]>();
     for (const s of sessions) {
       const k = s.search_id || "_none";
@@ -4751,10 +4764,14 @@ function WaBot({
       byId.set(k, list);
     }
     const known = new Set(jobs.map((j) => j.id));
-    const groups = jobs.map((j) => ({ id: j.id, title: j.title, sessions: byId.get(j.id) || [] }));
+    const groups = jobs.map((j) => ({
+      id: j.id,
+      title: j.title,
+      sessions: sortByScore(byId.get(j.id) || []),
+    }));
     const orphans: BotSess[] = [];
     for (const [k, list] of byId) if (k === "_none" || !known.has(k)) orphans.push(...list);
-    if (orphans.length) groups.push({ id: "_none", title: "Sin aviso", sessions: orphans });
+    if (orphans.length) groups.push({ id: "_none", title: "Sin aviso", sessions: sortByScore(orphans) });
     return groups.sort((a, b) => b.sessions.length - a.sessions.length);
   }, [sessions, jobs]);
 
@@ -4779,6 +4796,52 @@ function WaBot({
       else notify(d.error || "No se pudo abrir el Excel.");
     } catch {
       notify("No se pudo abrir el Excel.");
+    }
+  }
+
+  // Imprime un reporte con las calificaciones de las pruebas de un aviso.
+  function printReport(g: { title: string; sessions: BotSess[] }) {
+    const esc = (t: string) =>
+      String(t ?? "").replace(
+        /[&<>]/g,
+        (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[m] || m,
+      );
+    const rows = g.sessions
+      .map((s, i) => {
+        const name = s.candidate_name || candName.get(s.candidate_id) || "Candidato";
+        const resp = s.score != null ? `${s.score}/10` : "—";
+        const excel = s.excel_score != null ? `${s.excel_score}/10` : "—";
+        return `<tr><td class="num">${i + 1}</td><td class="name">${esc(
+          name,
+        )}</td><td class="num">${resp}</td><td class="num">${excel}</td></tr>`;
+      })
+      .join("");
+    const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Reporte — ${esc(
+      g.title,
+    )}</title><style>
+  body{font-family:Arial,Helvetica,sans-serif;font-size:14pt;color:#000;margin:24px}
+  h1{font-size:16pt;margin:0 0 12px}
+  table{border-collapse:collapse}
+  th,td{border:1px solid #000;padding:3px 8px;background:none}
+  th{white-space:normal;text-align:center;font-weight:bold}
+  td{white-space:nowrap}
+  td.num{text-align:center}
+  th.name,td.name{white-space:normal;max-width:170px;text-align:left}
+  @media print{body{margin:0}}
+</style></head><body>
+<h1>${esc(g.title)} — Calificaciones de las pruebas</h1>
+<table>
+  <thead><tr><th>#</th><th class="name">Candidato</th><th>Resp.</th><th>Excel</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<script>window.onload=function(){setTimeout(function(){window.print()},250)}</script>
+</body></html>`;
+    const w = window.open("", "_blank");
+    if (w) {
+      w.document.write(html);
+      w.document.close();
+    } else {
+      notify("Permití las ventanas emergentes para imprimir.");
     }
   }
 
@@ -4838,6 +4901,18 @@ function WaBot({
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 2px", cursor: "pointer" }}
               >
                 <strong style={{ flex: 1 }}>{g.title}</strong>
+                {g.sessions.length > 0 && (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    title="Imprimir reporte de calificaciones"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      printReport(g);
+                    }}
+                  >
+                    🖨 Reporte
+                  </button>
+                )}
                 <span className="count">{g.sessions.length}</span>
                 <span className="chevron">▾</span>
               </div>
