@@ -238,6 +238,22 @@ const nameKey = (s: string) =>
 
 // Estimaciones de costo del bot (US$ aprox.). IA = Anthropic; WhatsApp = Meta.
 const BOT_COST = { answers: 0.005, excel: 0.01, waConversation: 0.034 };
+
+// Convierte los links de un texto en enlaces clickeables (ej. portafolios).
+function linkify(text: string): React.ReactNode {
+  const parts = String(text ?? "").split(/(https?:\/\/[^\s]+|www\.[^\s]+)/gi);
+  return parts.map((p, i) => {
+    if (/^(https?:\/\/|www\.)/i.test(p)) {
+      const href = /^www\./i.test(p) ? `https://${p}` : p;
+      return (
+        <a key={i} href={href} target="_blank" rel="noreferrer">
+          {p}
+        </a>
+      );
+    }
+    return <span key={i}>{p}</span>;
+  });
+}
 function hace(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
@@ -4961,7 +4977,7 @@ function WaBot({
                             {(s.answers || []).map((qa, i) => (
                               <div className="wabot-qa" key={i}>
                                 <div className="wabot-qa-q">{qa.q}</div>
-                                <div className="wabot-qa-a">{qa.a}</div>
+                                <div className="wabot-qa-a">{linkify(qa.a)}</div>
                               </div>
                             ))}
                             {(s.excel_detail || s.excel_score != null) && (
