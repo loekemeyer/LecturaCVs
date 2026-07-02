@@ -13,7 +13,10 @@ export interface PruebaRow {
   total: number; // total TAL CUAL figura (008 viene mal cargado)
 }
 
-export const PRUEBA_CAJA = 611500; // dinero real contado en caja (total correcto, ya con la parte 1)
+// Efectivo realmente contado en la caja = Ventas correctas ($611.500) menos las
+// comisiones que se pagan en efectivo de la caja ($30.575) = $580.925.
+export const PRUEBA_CAJA = 580925;
+export const PRUEBA_VENTAS_CORRECTO = 611500; // suma correcta de todas las ventas (con parte 1)
 export const PRUEBA_RATE = 0.05; // comisión 5%
 export const PRUEBA_ERROR_TICKET = "008";
 export const PRUEBA_MINUTOS = 30;

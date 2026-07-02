@@ -74,7 +74,7 @@ export default function ExamPrueba({
     }
     const typed = Number(totalDia);
     if (!typed) {
-      setErr("Ingresá el total del día antes de cerrar la caja.");
+      setErr("Ingresá el total del día (ventas) antes de cerrar la caja.");
       return;
     }
     if (typed !== sum) {
@@ -85,12 +85,20 @@ export default function ExamPrueba({
       );
       return;
     }
-    if (sum !== PRUEBA_CAJA) {
-      const diff = sum - PRUEBA_CAJA;
+    if (PRUEBA_VENDEDORES.some((v) => !comm[v])) {
+      setErr("Cargá la comisión de cada vendedor antes de cerrar (se pagan en efectivo de la caja).");
+      return;
+    }
+    const commSum = PRUEBA_VENDEDORES.reduce((a, v) => a + (Number(comm[v]) || 0), 0);
+    const efectivo = sum - commSum;
+    if (efectivo !== PRUEBA_CAJA) {
+      const diff = efectivo - PRUEBA_CAJA;
       setErr(
-        `⚠️ No se puede cerrar la caja.\nTotal de ventas: ${fmt(sum)}\nDinero en caja: ${fmt(
+        `⚠️ No se puede cerrar la caja.\nVentas: ${fmt(sum)}\nComisiones pagadas: ${fmt(
+          commSum,
+        )}\nEfectivo esperado (ventas − comisiones): ${fmt(efectivo)}\nEfectivo contado en caja: ${fmt(
           PRUEBA_CAJA,
-        )}\nDiferencia: ${fmt(Math.abs(diff))} ${diff > 0 ? "(de más)" : "(de menos)"}.\nHay un dato mal cargado en las ventas: revisá los totales y corregí el error.`,
+        )}\nDiferencia: ${fmt(Math.abs(diff))} ${diff > 0 ? "(de más)" : "(de menos)"}.\nRevisá las ventas (puede haber un dato mal cargado) y las comisiones.`,
       );
       return;
     }
@@ -259,7 +267,7 @@ export default function ExamPrueba({
             </div>
 
             <div style={{ fontSize: 15, margin: "8px 0" }}>
-              💵 Dinero contado en caja: <strong>{fmt(PRUEBA_CAJA)}</strong>
+              💵 Efectivo contado en caja: <strong>{fmt(PRUEBA_CAJA)}</strong>
             </div>
 
             <table style={{ borderCollapse: "collapse", width: "100%" }}>
@@ -313,7 +321,8 @@ export default function ExamPrueba({
             {/* PARTE 2 — comisiones (aparte de la caja) */}
             <h4 style={{ margin: "16px 0 4px" }}>Parte 2 — Comisión a pagar por vendedor (5%)</h4>
             <p style={{ fontSize: 12, color: "#888", margin: "0 0 6px" }}>
-              (Las comisiones se pagan aparte; no salen de la caja del día.)
+              Las comisiones se pagan en efectivo de la caja: se restan del efectivo
+              (Ventas − Comisiones = efectivo en caja).
             </p>
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
               {PRUEBA_VENDEDORES.map((v) => (

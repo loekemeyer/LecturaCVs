@@ -2,6 +2,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import {
   PRUEBA_CAJA,
+  PRUEBA_VENTAS_CORRECTO,
   PRUEBA_ERROR_TICKET,
   PRUEBA_PRICE,
   PRUEBA_PRECIO_CORRECTO,
@@ -29,8 +30,9 @@ const clamp = (n: number, lo = 0, hi = 10) => Math.max(lo, Math.min(hi, n));
 export async function scoreProblemTest(sub: PruebaSubmission): Promise<PruebaResult> {
   const correct = correctTotals();
   const finalSum = Object.values(sub.rowTotals || {}).reduce((a, b) => a + (Number(b) || 0), 0);
-  const totalEntered = Number(sub.totalEntered) || 0;
-  const solved = !!sub.closed && finalSum === PRUEBA_CAJA && totalEntered === PRUEBA_CAJA;
+  const commEntered = Object.values(sub.commissions || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+  const efectivo = finalSum - commEntered; // ventas - comisiones pagadas de la caja
+  const solved = !!sub.closed && finalSum === PRUEBA_VENTAS_CORRECTO && efectivo === PRUEBA_CAJA;
 
   const priceOk = Number(sub.priceEntered) === PRUEBA_PRECIO_CORRECTO;
   const fixedRightRow = Number(sub.rowTotals?.[PRUEBA_ERROR_TICKET]) === correct[PRUEBA_ERROR_TICKET];
