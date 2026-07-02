@@ -4972,6 +4972,7 @@ function WaBot({
     const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(
       name,
     )}</title><style>
+  @page{margin:1cm 1.5cm}
   body{font-family:Arial,Helvetica,sans-serif;font-size:14pt;color:#000;margin:24px;max-width:820px;text-align:justify}
   h1{font-size:16pt;text-align:center;text-decoration:underline;font-weight:bold;margin:0 0 6px}
   .sub{font-size:14pt;text-align:center;margin:0 0 18px}
