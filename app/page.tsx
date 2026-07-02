@@ -2641,16 +2641,6 @@ export default function Home() {
                   e.target.value = "";
                 }}
               />
-              <button
-                className="btn btn-ghost"
-                onClick={() => {
-                  setBulkReport(null);
-                  setBulkBotJob(activeJob.id);
-                }}
-                title="Enviar el mensaje del bot a los candidatos sin calificar con buen puntaje"
-              >
-                🤖 Invitar al bot
-              </button>
             </div>
 
             {evalProgress && evalProgress.jobId === activeJob.id && (
@@ -2725,6 +2715,16 @@ export default function Home() {
                   📋 Tablero
                 </button>
               </div>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setBulkReport(null);
+                  setBulkBotJob(activeJob.id);
+                }}
+                title="Enviar el mensaje del bot a los candidatos sin calificar con buen puntaje (no trae CVs nuevos)"
+              >
+                🤖 Mensajes Masivos
+              </button>
             </div>
 
             {boardView ? (
@@ -3278,7 +3278,7 @@ export default function Home() {
             <div className="modal-overlay" onClick={() => setBulkBotJob(null)}>
               <div className="modal" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-head">
-                  <strong>🤖 Invitar al bot — {job.title}</strong>
+                  <strong>🤖 Mensajes Masivos — {job.title}</strong>
                   <button className="icon-btn" aria-label="Cerrar" onClick={() => setBulkBotJob(null)}>
                     ×
                   </button>
