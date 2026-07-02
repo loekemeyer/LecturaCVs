@@ -72,31 +72,31 @@ export default function ExamPrueba({
       setErr("Primero calculá y grabá el precio de venta del artículo (Parte 1).");
       return;
     }
-    const typed = Number(totalDia);
-    if (!typed) {
-      setErr("Ingresá el total del día (ventas) antes de cerrar la caja.");
-      return;
-    }
-    if (typed !== sum) {
-      setErr(
-        `El total ingresado (${fmt(typed)}) no coincide con la suma de las ventas de la tabla (${fmt(
-          sum,
-        )}). Revisá tu cálculo.`,
-      );
-      return;
-    }
     if (PRUEBA_VENDEDORES.some((v) => !comm[v])) {
       setErr("Cargá la comisión de cada vendedor antes de cerrar (se pagan en efectivo de la caja).");
       return;
     }
     const commSum = PRUEBA_VENDEDORES.reduce((a, v) => a + (Number(comm[v]) || 0), 0);
-    const efectivo = sum - commSum;
-    if (efectivo !== PRUEBA_CAJA) {
-      const diff = efectivo - PRUEBA_CAJA;
+    const calcEfectivo = sum - commSum; // ventas - comisiones según sus datos
+    const typed = Number(totalDia);
+    if (!typed) {
+      setErr("Ingresá el efectivo que debe quedar en caja (Ventas − Comisiones).");
+      return;
+    }
+    if (typed !== calcEfectivo) {
+      setErr(
+        `El efectivo ingresado (${fmt(typed)}) no coincide con Ventas (${fmt(sum)}) − Comisiones (${fmt(
+          commSum,
+        )}) = ${fmt(calcEfectivo)} según tus datos. Revisá el cálculo.`,
+      );
+      return;
+    }
+    if (calcEfectivo !== PRUEBA_CAJA) {
+      const diff = calcEfectivo - PRUEBA_CAJA;
       setErr(
         `⚠️ No se puede cerrar la caja.\nVentas: ${fmt(sum)}\nComisiones pagadas: ${fmt(
           commSum,
-        )}\nEfectivo esperado (ventas − comisiones): ${fmt(efectivo)}\nEfectivo contado en caja: ${fmt(
+        )}\nEfectivo esperado (ventas − comisiones): ${fmt(calcEfectivo)}\nEfectivo contado en caja: ${fmt(
           PRUEBA_CAJA,
         )}\nDiferencia: ${fmt(Math.abs(diff))} ${diff > 0 ? "(de más)" : "(de menos)"}.\nRevisá las ventas (puede haber un dato mal cargado) y las comisiones.`,
       );
@@ -235,7 +235,10 @@ export default function ExamPrueba({
               <ol style={{ margin: "6px 0 0 18px" }}>
                 <li>Calcular el <strong>precio de venta</strong> del artículo (Parte 1) y grabarlo.</li>
                 <li>Calcular la <strong>comisión (5%)</strong> de cada vendedor.</li>
-                <li>Ingresar el <strong>total del día</strong> y tocar <strong>“Cerrar caja”</strong>.</li>
+                <li>
+                  Ingresar el <strong>efectivo que debe quedar en caja</strong> (Ventas − Comisiones)
+                  y tocar <strong>“Cerrar caja”</strong>.
+                </li>
               </ol>
               Podés usar las herramientas que consideres necesario (calculadora, Excel, IA, Google).
               Tenés <strong>{PRUEBA_MINUTOS} minutos</strong> para completar la prueba.
@@ -343,7 +346,7 @@ export default function ExamPrueba({
             {/* PARTE 3 — total del día + cerrar caja */}
             <h4 style={{ margin: "16px 0 6px" }}>Parte 3 — Cerrar caja</h4>
             <label style={{ fontSize: 14 }}>
-              Total del día:{" "}
+              Efectivo que debe quedar en caja (Ventas − Comisiones):{" "}
               <input
                 type="number"
                 placeholder="$"
