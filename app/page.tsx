@@ -424,6 +424,15 @@ export default function Home() {
   // puntajes por candidato (candidate_id -> score) para mostrarlos en su ficha.
   const [examCand, setExamCand] = useState<{ id: string; name: string; searchId: string } | null>(null);
   const [pruebaByCand, setPruebaByCand] = useState<Record<string, PruebaInfo>>({});
+  // Candidatos que YA recibieron el mensaje del bot (para no duplicar + la marca 🤖).
+  const [botInvited, setBotInvited] = useState<Set<string>>(new Set());
+  // Envío masivo del bot: búsqueda abierta, puntaje mínimo, estado y reporte.
+  const [bulkBotJob, setBulkBotJob] = useState<string | null>(null);
+  const [bulkMinScore, setBulkMinScore] = useState("7.5");
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkReport, setBulkReport] = useState<
+    { name: string; phone: string; ok: boolean; error?: string }[] | null
+  >(null);
   // Compositor de mail abierto para un candidato (desde el tablero).
   const [mailCand, setMailCand] = useState<{ jobId: string; cand: Candidate } | null>(null);
   // Estado de conexión con Google Calendar.
@@ -499,9 +508,12 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
 
-  // Puntajes de la prueba de resolución (cuando hay sesión).
+  // Puntajes de la prueba de resolución + quiénes ya recibieron el bot.
   useEffect(() => {
-    if (authed) void loadPruebas();
+    if (authed) {
+      void loadPruebas();
+      void loadBotInvited();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
 
@@ -654,6 +666,46 @@ export default function Home() {
     } catch {
       /* sin datos de pruebas */
     }
+  }
+
+  // Carga los candidatos que ya tienen una sesión del bot (ya recibieron el mensaje).
+  async function loadBotInvited() {
+    try {
+      const r = await fetch("/api/whatsapp/sessions", { headers: authHeaders() });
+      if (r.status === 401) return;
+      const d = await r.json().catch(() => ({}));
+      const set = new Set<string>();
+      for (const s of (d.sessions || []) as { candidate_id?: string }[]) {
+        if (s.candidate_id) set.add(s.candidate_id);
+      }
+      setBotInvited(set);
+    } catch {
+      /* sin datos */
+    }
+  }
+
+  // Envío masivo del bot: a los candidatos SIN CALIFICAR con puntaje >= mínimo, con
+  // teléfono, que todavía NO recibieron el mensaje. Devuelve un reporte.
+  async function sendBulkBot(jobId: string, targets: { c: Candidate; phone: string }[]) {
+    setBulkSending(true);
+    const report: { name: string; phone: string; ok: boolean; error?: string }[] = [];
+    for (const { c, phone } of targets) {
+      try {
+        const res = await fetch("/api/whatsapp/start", {
+          method: "POST",
+          headers: { "content-type": "application/json", ...authHeaders() },
+          body: JSON.stringify({ candidateId: c.id, searchId: jobId, phone }),
+        });
+        if (res.status === 401) onAuthFail();
+        const d = await res.json().catch(() => ({}));
+        report.push({ name: c.name, phone, ok: res.ok, error: res.ok ? undefined : d?.error || "error" });
+      } catch {
+        report.push({ name: c.name, phone, ok: false, error: "error de red" });
+      }
+    }
+    setBulkReport(report);
+    setBulkSending(false);
+    await loadBotInvited();
   }
 
   // "Foto" del estado para comparar contra lo último subido (clave -> JSON).
@@ -2589,6 +2641,16 @@ export default function Home() {
                   e.target.value = "";
                 }}
               />
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  setBulkReport(null);
+                  setBulkBotJob(activeJob.id);
+                }}
+                title="Enviar el mensaje del bot a los candidatos sin calificar con buen puntaje"
+              >
+                🤖 Invitar al bot
+              </button>
             </div>
 
             {evalProgress && evalProgress.jobId === activeJob.id && (
@@ -2682,6 +2744,7 @@ export default function Home() {
                 onStartExam={(cand) =>
                   setExamCand({ id: cand.id, name: cand.name, searchId: activeJob.id })
                 }
+                botInvited={botInvited}
               />
             ) : (
               <>
@@ -2833,6 +2896,7 @@ export default function Home() {
                     onDelete={() => deleteCandidate(activeJob.id, c.id)}
                     onStartExam={() => setExamCand({ id: c.id, name: c.name, searchId: activeJob.id })}
                     prueba={pruebaByCand[c.id]}
+                    botInvited={botInvited.has(c.id)}
                     onNotes={(t) => patchCandidate(activeJob.id, c.id, { notes: t })}
                     jobTitle={activeJob.title}
                     otherJobs={(candidateIndex.get(norm(c.name)) ?? []).filter(
@@ -3194,6 +3258,127 @@ export default function Home() {
         />
       )}
 
+      {bulkBotJob &&
+        (() => {
+          const job = jobs.find((j) => j.id === bulkBotJob);
+          if (!job) return null;
+          const min = Number(bulkMinScore) || 0;
+          const elegibles = job.candidates.filter(
+            (c) =>
+              califOf(c) === "sincalificar" &&
+              c.evaluation &&
+              Math.round(c.evaluation.overallScore) / 10 >= min &&
+              !botInvited.has(c.id),
+          );
+          const withPhone = elegibles
+            .map((c) => ({ c, phone: toWaNumber(extractPhone(c.cvText)) }))
+            .filter((x) => x.phone);
+          const noPhone = elegibles.length - withPhone.length;
+          return (
+            <div className="modal-overlay" onClick={() => setBulkBotJob(null)}>
+              <div className="modal" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-head">
+                  <strong>🤖 Invitar al bot — {job.title}</strong>
+                  <button className="icon-btn" aria-label="Cerrar" onClick={() => setBulkBotJob(null)}>
+                    ×
+                  </button>
+                </div>
+                <div className="modal-body">
+                  {bulkReport ? (
+                    <>
+                      <p>
+                        <strong>Reporte de envío</strong> — {bulkReport.filter((r) => r.ok).length}{" "}
+                        enviado(s), {bulkReport.filter((r) => !r.ok).length} con error.
+                      </p>
+                      <div className="cost-table">
+                        {bulkReport.map((r, i) => (
+                          <div className="cost-row" key={i}>
+                            <span className="cost-row-label">
+                              {r.ok ? "✅" : "❌"} {r.name}
+                            </span>
+                            <span className="cost-row-count">{r.phone}</span>
+                            <span className="cost-row-usd">{r.ok ? "enviado" : r.error || "error"}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ marginTop: 12 }}>
+                        <button
+                          className="btn btn-primary"
+                          onClick={() => {
+                            setBulkBotJob(null);
+                            setBulkReport(null);
+                          }}
+                        >
+                          Cerrar
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        Puntuación mínima:
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="10"
+                          value={bulkMinScore}
+                          onChange={(e) => setBulkMinScore(e.target.value)}
+                          style={{ width: 90, padding: "4px 6px" }}
+                        />
+                        <span className="field-hint">de 0 a 10</span>
+                      </label>
+                      <p className="field-hint" style={{ marginTop: 6 }}>
+                        Se envía a los candidatos <strong>sin calificar</strong> con puntaje ≥ {min} que{" "}
+                        <strong>todavía no</strong> recibieron el mensaje.
+                      </p>
+                      {withPhone.length === 0 ? (
+                        <p className="empty">
+                          No hay candidatos nuevos que cumplan (o no tienen teléfono en el CV).
+                        </p>
+                      ) : (
+                        <>
+                          <p>
+                            <strong>Se enviará a {withPhone.length} candidato(s):</strong>
+                          </p>
+                          <div className="cost-table" style={{ maxHeight: 320, overflow: "auto" }}>
+                            {withPhone.map(({ c, phone }) => (
+                              <div className="cost-row" key={c.id}>
+                                <span className="cost-row-label">{c.name}</span>
+                                <span className="cost-row-count">
+                                  {c.evaluation ? toTen(c.evaluation.overallScore) : "-"}/10
+                                </span>
+                                <span className="cost-row-usd">{phone}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {noPhone > 0 && (
+                        <p className="field-hint">
+                          ⚠️ {noPhone} candidato(s) cumplen pero no tienen teléfono en el CV: se omiten.
+                        </p>
+                      )}
+                      <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+                        <button
+                          className="btn btn-primary"
+                          disabled={bulkSending || withPhone.length === 0}
+                          onClick={() => sendBulkBot(bulkBotJob, withPhone)}
+                        >
+                          {bulkSending ? "Enviando…" : `Enviar a ${withPhone.length}`}
+                        </button>
+                        <button className="btn btn-ghost" onClick={() => setBulkBotJob(null)}>
+                          Cancelar
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
       {compareOpen &&
         (() => {
           const items = (activeJob?.candidates ?? []).filter((c) => compareSel.has(c.id));
@@ -3338,6 +3523,7 @@ function CandidateRow({
   onDelete,
   onStartExam,
   prueba,
+  botInvited,
   pendingUndo,
   undoUntil,
   onUndo,
@@ -3360,6 +3546,7 @@ function CandidateRow({
   onDelete: () => void;
   onStartExam?: () => void;
   prueba?: PruebaInfo;
+  botInvited?: boolean;
   pendingUndo?: boolean;
   undoUntil?: number;
   onUndo?: () => void;
@@ -3416,6 +3603,11 @@ function CandidateRow({
         <div className="result-id" onClick={onToggle}>
           <div className="who">
             {cand.name}
+            {botInvited && (
+              <span title="Ya recibió el mensaje del bot" style={{ marginLeft: 6 }}>
+                🤖
+              </span>
+            )}
             {otherJobs && otherJobs.length > 0 && (
               <span
                 className="dup-flag"
@@ -4166,6 +4358,7 @@ function Board({
   onSendMail,
   onStartWa,
   onStartExam,
+  botInvited,
 }: {
   job: Job;
   stages: Stage[];
@@ -4180,6 +4373,7 @@ function Board({
   onSendMail: (cand: Candidate) => void;
   onStartWa: (cand: Candidate) => void;
   onStartExam: (cand: Candidate) => void;
+  botInvited: Set<string>;
 }) {
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
   const toggleCard = (id: string) =>
@@ -4282,6 +4476,7 @@ function Board({
                           </span>
                         )}
                         <span className="board-card-name">{c.name}</span>
+                        {botInvited.has(c.id) ? <span title="Ya recibió el mensaje del bot">🤖</span> : null}
                         {c.notes ? <span title="Tiene nota">📝</span> : null}
                       </div>
                       <div className="board-card-meta">
