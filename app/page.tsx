@@ -4978,7 +4978,7 @@ function WaBot({
   .sub{font-size:14pt;text-align:center;margin:0 0 18px}
   .qa{margin:0 0 14px;page-break-inside:avoid}
   .q{font-size:12pt;font-weight:bold;white-space:pre-wrap}
-  .a{font-size:14pt;white-space:pre-wrap;margin:2px 0 8px 3cm}
+  .a{font-size:14pt;white-space:pre-wrap;margin:2px 0 8px 1cm}
 </style></head><body>
 <h1>${esc(name)}</h1>
 <p class="sub">${esc(scoreLine)}</p>
