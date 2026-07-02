@@ -4972,13 +4972,13 @@ function WaBot({
     const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(
       name,
     )}</title><style>
-  @page{margin:1cm 1.5cm}
+  @page{margin:2cm 2.5cm}
   body{font-family:Arial,Helvetica,sans-serif;font-size:14pt;color:#000;margin:24px;max-width:820px;text-align:justify}
   h1{font-size:16pt;text-align:center;text-decoration:underline;font-weight:bold;margin:0 0 6px}
   .sub{font-size:14pt;text-align:center;margin:0 0 18px}
   .qa{margin:0 0 14px;page-break-inside:avoid}
   .q{font-size:12pt;font-weight:bold;white-space:pre-wrap}
-  .a{font-size:14pt;white-space:pre-wrap;margin:2px 0}
+  .a{font-size:14pt;white-space:pre-wrap;margin:2px 0 8px 5cm}
   @media print{body{margin:0}}
 </style></head><body>
 <h1>${esc(name)}</h1>
